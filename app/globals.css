@@ -56,3 +56,106 @@ main {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE and Edge */
 }
+
+/* Loading Spinner Animations */
+@keyframes rotate-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rotate-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes seal-pulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(220, 38, 38, 0.3), inset 0 0 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(220, 38, 38, 0.6), inset 0 0 5px rgba(0, 0, 0, 0.2);
+    transform: scale(1.05);
+  }
+}
+
+@keyframes glitch-1 {
+  0%, 100% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  10% {
+    transform: translateX(-2px);
+    opacity: 0.5;
+  }
+  20% {
+    transform: translateX(2px);
+    opacity: 0.3;
+  }
+  30% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+}
+
+@keyframes glitch-2 {
+  0%, 100% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  15% {
+    transform: translateX(1px);
+    opacity: 0.4;
+  }
+  25% {
+    transform: translateX(-1px);
+    opacity: 0.2;
+  }
+  35% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+}
+
+@keyframes dot-flip {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.animate-rotate-slow {
+  animation: rotate-slow 4s linear infinite;
+}
+
+.animate-rotate-reverse {
+  animation: rotate-reverse 6s linear infinite;
+}
+
+.animate-seal-pulse {
+  animation: seal-pulse 1.5s ease-in-out infinite;
+}
+
+.animate-glitch-1 {
+  animation: glitch-1 0.8s steps(1) infinite;
+}
+
+.animate-glitch-2 {
+  animation: glitch-2 0.6s steps(1) infinite;
+}
+
+.animate-dot-flip {
+  animation: dot-flip 0.6s ease-in-out infinite;
+}

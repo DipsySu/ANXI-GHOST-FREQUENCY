@@ -2,8 +2,8 @@ export type Language = 'en' | 'zh';
 
 export const translations = {
   en: {
-    title: 'ANXI GHOST FREQUENCY',
-    subtitle: 'TIMELINE 640-808 AD // PARALLEL UNIVERSE',
+    title: 'LOST CHANG\'AN',
+    subtitle: 'ANXI ARCHIVES // 640-808 AD // PARALLEL TIMELINE',
     status_online: 'ONLINE',
     mem_integrity: 'MEM_INTEGRITY',
     welcome_title: 'Connection Established',
@@ -23,8 +23,8 @@ export const translations = {
     visual_reconstructed: 'VISUAL_RECONSTRUCTION ID:',
   },
   zh: {
-    title: '安西幽灵频段',
-    subtitle: '时间线 640-808 年 // 平行宇宙',
+    title: '长安遥讯',
+    subtitle: '安西档案馆 // 640-808 年 // 平行时间线',
     status_online: '在线',
     mem_integrity: '记忆完整度',
     welcome_title: '连接已建立',

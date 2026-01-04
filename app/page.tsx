@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { LogData, Era } from './types';
 import { LogEntry } from './components/LogEntry';
 import { CRTOverlay } from './components/CRTOverlay';
+import { LoadingSpinner } from './components/LoadingSpinner';
 import { Search, RotateCw, Terminal, Languages, Database } from 'lucide-react';
 import { translations, Language } from './constants/translations';
 
@@ -147,15 +148,6 @@ export default function Home() {
               isPlaying={false}
             />
           ))}
-          {loading && (
-            <div className="p-6 border-l-4 border-gray-700 bg-black/20 text-gray-400 font-mono text-xs animate-pulse">
-              {t.loading_quantum}
-              <br />
-              {t.loading_decrypt}
-              <br />
-              {t.loading_audio}
-            </div>
-          )}
           <div ref={endOfLogsRef} />
         </div>
       </main>
@@ -204,6 +196,24 @@ export default function Home() {
           </span>
         </div>
       </footer>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-6">
+            <LoadingSpinner size="lg" />
+            <div className="text-center space-y-2">
+              <p className="text-cyan-400/90 font-mono text-sm tracking-wider">{t.loading_quantum}</p>
+              <p className="text-gray-500 font-mono text-xs">{t.loading_decrypt}</p>
+            </div>
+            <div className="mt-4 px-4 py-2 border border-cyan-900/50 bg-cyan-950/20 rounded">
+              <p className="text-[10px] text-cyan-600/70 font-mono animate-pulse">
+                &gt; ESTABLISHING SECURE CONNECTION...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

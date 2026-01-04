@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="sealRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#dc2626"/>
+      <stop offset="50%" style="stop-color:#b91c1c"/>
+      <stop offset="100%" style="stop-color:#991b1b"/>
+    </linearGradient>
+    <filter id="glitch">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="1" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+
+  <!-- Seal base - rounded square -->
+  <rect x="8" y="8" width="48" height="48" rx="4" fill="url(#sealRed)" stroke="#7f1d1d" stroke-width="2"/>
+
+  <!-- Inner border -->
+  <rect x="13" y="13" width="38" height="38" rx="2" fill="none" stroke="#fca5a5" stroke-width="1.5" opacity="0.6"/>
+
+  <!-- Character "安" in seal script style -->
+  <g fill="#fef2f2" filter="url(#glitch)">
+    <!-- Roof top -->
+    <path d="M20 24 L32 20 L44 24 L44 26 L32 22 L20 26 Z"/>
+
+    <!-- Center vertical -->
+    <rect x="30" y="26" width="4" height="20"/>
+
+    <!-- Left stroke -->
+    <path d="M20 28 L26 28 L26 44 L22 44 L22 32 L20 32 Z"/>
+
+    <!-- Right stroke -->
+    <path d="M38 28 L44 28 L44 32 L42 32 L42 44 L38 44 Z"/>
+
+    <!-- Bottom horizontal -->
+    <rect x="20" y="44" width="24" height="3"/>
+  </g>
+
+  <!-- Glitch artifacts -->
+  <rect x="16" y="34" width="8" height="2" fill="#22d3ee" opacity="0.8"/>
+  <rect x="42" y="28" width="6" height="2" fill="#22d3ee" opacity="0.6"/>
+  <rect x="28" y="48" width="10" height="2" fill="#22d3ee" opacity="0.5"/>
+
+  <!-- Corruption scan lines -->
+  <line x1="8" y1="30" x2="56" y2="30" stroke="#000" stroke-width="0.5" opacity="0.3"/>
+  <line x1="8" y1="38" x2="56" y2="38" stroke="#000" stroke-width="0.5" opacity="0.3"/>
+</svg>
