@@ -20,3 +20,6 @@ api.log
 logs
 brain
 .gemini
+
+# Windows Metadata
+*:Zone.Identifier
