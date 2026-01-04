@@ -5,7 +5,8 @@ const ENABLE_IMAGE_GENERATION = process.env.ENABLE_IMAGE_GENERATION === 'true';
 
 export async function POST(request: NextRequest) {
   try {
-    const { query } = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const { query } = body;
 
     if (!query) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
