@@ -4,7 +4,8 @@
 
 A "Cyber-Archaeology" terminal that simulates connection to a cyberpunk version of the Tang Dynasty's Anxi Protectorate. Enter years or keywords to retrieve digital diaries from soldiers and civilians, accompanied by AI-generated historical/sci-fi scene images.
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 ---
@@ -22,11 +23,12 @@ This project combines history with cyberpunk aesthetics, creating an immersive s
 
 ## Features
 
-- **CLI Interface**: Beautiful terminal UI powered by `rich`
-- **Web Interface**: React-based frontend with FastAPI backend
+- **Web Interface**: Next.js with Tailwind CSS
+- **Bilingual**: English and Chinese support
 - **AI-Powered**: Text generation via Google Gemini API
-- **Image Generation**: AI-generated scene visuals
+- **Image Generation**: AI-generated scene visuals using Gemini 3 Pro Image
 - **Era System**: Dynamic content based on historical timeline
+- **CRT Effect**: Retro terminal aesthetics
 
 ---
 
@@ -34,72 +36,55 @@ This project combines history with cyberpunk aesthetics, creating an immersive s
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 20+ (for frontend build)
+- Node.js 20+
 - Google Gemini API Key ([Get one here](https://aistudio.google.com/app/apikey))
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/ANXI-GHOST-FREQUENCY.git
-cd ANXI-GHOST-FREQUENCY
-
-# Install Python dependencies
-pip install -r requirements.txt
+# Install dependencies
+npm install
 
 # Configure environment variables
-cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY
+cp .env.local.example .env.local
+# Edit .env.local and add your GEMINI_API_KEY
 ```
 
 ### Running
 
-**CLI Mode:**
+**Development:**
 ```bash
-python main.py
+npm run dev
+# Visit http://localhost:3000
 ```
 
-**Web Mode:**
+**Production:**
 ```bash
-# Build frontend
-cd the-anxi-archives
-npm install
 npm run build
-cd ..
-
-# Start API server
-python api.py
-# Visit http://localhost:8000
+npm start
 ```
 
-**Docker (Recommended):**
+**Deploy to Vercel:**
 ```bash
-docker-compose up --build
+npm i -g vercel
+vercel
 ```
 
 ---
 
-## Usage
+## Configuration
 
-### CLI Interface
+Edit `.env.local` file:
 
+```bash
+# Required
+GEMINI_API_KEY=your_api_key_here
+
+# Optional
+# GEMINI_TEXT_MODEL=gemini-2.0-flash-exp
+# GEMINI_IMAGE_MODEL=gemini-3-pro-image
+# BASE_URL=http://your-proxy-endpoint:port
 ```
-Enter Year/Command (e.g. '790')
-> 755
-
-[公元755年 | 龟兹城外 | 信号强度: 67%]
-FROM: 斥候兵-李
----
-今日给义肢上了油，这该死的吐蕃干扰波又强了...
-```
-
-### Commands
-
-- Input a year (640-808) to explore that timeline
-- Enter keywords like "陌刀", "龟兹", etc.
-- Leave empty for random mode
-- Type `exit` or `quit` to close
 
 ---
 
@@ -107,30 +92,28 @@ FROM: 斥候兵-李
 
 ```
 ANXI-GHOST-FREQUENCY/
-├── core/
-│   ├── client.py      # Gemini API wrapper
-│   ├── config.py      # Configuration management
-│   ├── imager.py      # Image generation
-│   └── prompts.py     # AI system prompts
-├── the-anxi-archives/ # React frontend
-├── api.py             # FastAPI web server
-├── main.py            # CLI entry point
-├── Dockerfile         # Container configuration
-└── requirements.txt   # Python dependencies
+├── app/
+│   ├── api/generate/  # API routes
+│   ├── components/     # React components
+│   ├── constants/      # Translations
+│   ├── types.ts        # TypeScript types
+│   └── page.tsx        # Main page
+├── lib/
+│   └── gemini.ts       # Gemini API wrapper
+├── public/
+│   └── downloads/      # Generated images
+└── package.json
 ```
 
 ---
 
-## Configuration
+## Usage
 
-Edit `.env` file:
+Enter a year (640-808 AD) or keyword to retrieve a log entry from the timeline. The AI will generate:
 
-```bash
-GEMINI_API_KEY=your_api_key_here
-GEMINI_TEXT_MODEL=gemini-1.5-pro-latest
-GEMINI_IMAGE_MODEL=gemini-3-pro-image-4k
-BASE_URL=  # Optional: custom API endpoint
-```
+- A diary entry from a soldier or civilian
+- An AI-generated scene image
+- Signal quality and location info
 
 ---
 

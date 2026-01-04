@@ -1,54 +1,37 @@
-# Environment variables (contains sensitive API keys)
-.env
-.env.local
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-*.egg-info/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg
+# testing
+/coverage
 
-# Virtual environments
-venv/
-ENV/
-env/
-.venv
+# next.js
+/.next/
+/out/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# production
+/build
 
-# Logs
-*.log
-logs/
-
-# OS
+# misc
 .DS_Store
-Thumbs.db
+*.pem
 
-# Project specific
-anxi-ghost.tar
-*.tar
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Test artifacts (optional - comment out if you want to keep tests)
-test_*.py
+# env files
+.env*.local
 
-# Claude Code
-.claude/
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# downloads
+public/downloads/*
+!public/downloads/.gitkeep
