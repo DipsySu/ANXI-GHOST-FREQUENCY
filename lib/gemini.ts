@@ -1,6 +1,7 @@
-import fetch from 'node-fetch';
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
+import fetch from 'node-fetch';
+import { GoogleGenAI } from '@google/genai';
 
 const BASE_SYSTEM_PROMPT = `【ROLE SETTING】
 You are LI GUICHEN (李归尘), Codename: "Sand Wolf" (沙狼).
@@ -69,8 +70,21 @@ async function getSystemPrompt() {
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
 const BASE_URL = process.env.BASE_URL;
-const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-1.5-pro-latest';
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image';
+const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash-exp';
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash-exp';
+
+// Control which API method to use
+// - If BASE_URL is set, force use fetch (for proxy/relay)
+// - Otherwise, use USE_GEMINI_SDK env var (default: true for SDK, false for fetch)
+const USE_SDK = BASE_URL
+  ? false
+  : process.env.USE_GEMINI_SDK !== 'false';
+
+console.log(`[Gemini] Using ${USE_SDK ? 'SDK' : 'REST API (fetch)'} mode`);
+
+// ============================================================================
+// METHOD 1: REST API with fetch (for proxy/relay services)
+// ============================================================================
 
 interface GenerateResponse {
   candidates: Array<{
@@ -86,14 +100,14 @@ interface GenerateResponse {
   }>;
 }
 
-async function callGeminiAPI(
+async function callViaFetch(
+  model: string,
   contents: Array<{ role: string; parts: Array<{ text: string }> }>,
-  options: { responseMimeType?: string; responseModalities?: string[] } = {}
+  options: { responseMimeType?: string; responseModalities?: string[]; systemInstruction?: string }
 ) {
-  const model = options.responseModalities?.includes('IMAGE') ? IMAGE_MODEL : TEXT_MODEL;
-  const url = BASE_URL
-    ? `${BASE_URL}/v1beta/models/${model}:generateContent`
-    : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  // Use official Google API if no BASE_URL, otherwise use proxy
+  const baseUrl = BASE_URL || 'https://generativelanguage.googleapis.com';
+  const url = `${baseUrl}/v1beta/models/${model}:generateContent`;
 
   const body: any = {
     contents,
@@ -109,11 +123,10 @@ async function callGeminiAPI(
   }
 
   // Only add systemInstruction for text generation
-  if (!options.responseModalities?.includes('IMAGE')) {
-    const fullSystemPrompt = await getSystemPrompt();
+  if (options.systemInstruction) {
     body.systemInstruction = {
       role: 'user',
-      parts: [{ text: fullSystemPrompt }]
+      parts: [{ text: options.systemInstruction }]
     };
   }
 
@@ -125,12 +138,11 @@ async function callGeminiAPI(
     };
   }
 
-  console.log(`[Gemini] Calling model: ${model}`);
-
   const response = await fetch(`${url}?key=${API_KEY}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-goog-api-key': API_KEY,
     },
     body: JSON.stringify(body),
   }) as any;
@@ -141,6 +153,129 @@ async function callGeminiAPI(
   }
 
   return response.json() as Promise<GenerateResponse>;
+}
+
+// ============================================================================
+// METHOD 2: Official Google AI SDK (for direct API access)
+// ============================================================================
+
+interface SDKResponsePart {
+  text?: string;
+  inlineData?: {
+    data: string;
+    mimeType: string;
+  };
+}
+
+interface SDKResponseCandidate {
+  content: {
+    parts: SDKResponsePart[];
+  };
+}
+
+async function callViaSDK(
+  model: string,
+  userPrompt: string,
+  options: { responseMimeType?: string; responseModalities?: string[]; systemInstruction?: string }
+): Promise<GenerateResponse> {
+  // The client automatically gets API key from GEMINI_API_KEY env var
+  const ai = new GoogleGenAI({});
+
+  console.log(`[Gemini SDK] Calling model: ${model}`);
+
+  // Build request parameters
+  const requestParams: any = {
+    model,
+    contents: userPrompt,
+  };
+
+  // Add system instruction if provided
+  if (options.systemInstruction) {
+    requestParams.systemInstruction = options.systemInstruction;
+  }
+
+  // Add response config
+  const config: any = {};
+  if (options.responseMimeType) {
+    config.responseMimeType = options.responseMimeType;
+  }
+  if (options.responseModalities?.includes('IMAGE')) {
+    config.responseModalities = ['IMAGE'];
+    config.candidateCount = 1;
+  }
+  if (Object.keys(config).length > 0) {
+    requestParams.config = config;
+  }
+
+  const response = await ai.models.generateContent(requestParams);
+
+  // Extract text and inline data
+  let fullText = '';
+  let inlineData: { data: string; mimeType: string } | undefined;
+
+  if (response.text) {
+    fullText = response.text;
+  }
+
+  // Check for image data (if any)
+  const responseObj = response as any;
+  if (responseObj.candidates?.[0]?.content?.parts) {
+    for (const part of responseObj.candidates[0].content.parts) {
+      if (part.inlineData) {
+        inlineData = part.inlineData;
+      }
+    }
+  }
+
+  // Return in the same format as fetch
+  const candidates: GenerateResponse['candidates'] = [{
+    content: {
+      parts: []
+    }
+  }];
+
+  if (fullText) {
+    candidates[0].content.parts.push({ text: fullText });
+  }
+
+  if (inlineData) {
+    candidates[0].content.parts.push({ inlineData });
+  }
+
+  return { candidates };
+}
+
+// ============================================================================
+// Unified API
+// ============================================================================
+
+async function callGeminiAPI(
+  contents: Array<{ role: string; parts: Array<{ text: string }> }>,
+  options: { responseMimeType?: string; responseModalities?: string[] } = {}
+) {
+  const model = options.responseModalities?.includes('IMAGE') ? IMAGE_MODEL : TEXT_MODEL;
+
+  // Get system instruction for text generation only
+  const systemInstruction = !options.responseModalities?.includes('IMAGE')
+    ? await getSystemPrompt()
+    : undefined;
+
+  // Extract user prompt from contents (for SDK mode)
+  const userPrompt = contents[contents.length - 1]?.parts[0]?.text || '';
+
+  if (USE_SDK) {
+    return await callViaSDK(model, userPrompt, {
+      responseMimeType: options.responseMimeType,
+      responseModalities: options.responseModalities,
+      systemInstruction
+    });
+  } else {
+    return await callViaFetch(model, contents, {
+      responseMimeType: options.responseMimeType,
+      responseModalities: options.responseModalities,
+      systemInstruction
+    });
+  }
 }
 
 export async function generateLog(query: string) {
