@@ -36,12 +36,14 @@ app.mount("/images", StaticFiles(directory="downloads"), name="images")
 
 # Init Clients
 try:
+    from core.config import ENABLE_IMAGE_GENERATION
     client = AnxiClient()
     imager = AnxiImager()
 except Exception as e:
     print(f"Failed to init core: {e}")
     client = None
     imager = None
+    ENABLE_IMAGE_GENERATION = False
 
 class GenerateRequest(BaseModel):
     query: str
@@ -62,7 +64,8 @@ async def generate_log(req: GenerateRequest):
     # 2. Generate Image
     image_prompt = log_data.get("image_prompt", "")
     image_url = ""
-    if image_prompt:
+    # Check Feature Flag
+    if ENABLE_IMAGE_GENERATION and image_prompt:
         try:
             local_path = imager.generate_scene(image_prompt)
             if local_path:
