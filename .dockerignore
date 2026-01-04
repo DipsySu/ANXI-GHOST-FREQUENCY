@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Node
+node_modules
+dist
+.env.local
+
+# Python
+__pycache__
+*.pyc
+venv
+.venv
+.pytest_cache
+
+# Project Artifacts
+downloads
+api.log
+logs
+brain
+.gemini

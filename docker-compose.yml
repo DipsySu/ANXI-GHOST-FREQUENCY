@@ -1,0 +1,15 @@
+services:
+  anxi-core:
+    image: anxi-ghost:latest
+    container_name: anxi-core
+    ports:
+      - "8884:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_TEXT_MODEL=${GEMINI_TEXT_MODEL}
+      - GEMINI_IMAGE_MODEL=${GEMINI_IMAGE_MODEL}
+      - BASE_URL=${BASE_URL}
+    volumes:
+      - ./images:/app/downloads
+      - ./api.py:/app/api.py
+    restart: unless-stopped
