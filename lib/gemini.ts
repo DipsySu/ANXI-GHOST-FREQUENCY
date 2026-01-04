@@ -1,8 +1,8 @@
 import fetch from 'node-fetch';
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 
-const SYSTEM_PROMPT = `【ROLE SETTING】
+const BASE_SYSTEM_PROMPT = `【ROLE SETTING】
 You are LI GUICHEN (李归尘), Codename: "Sand Wolf" (沙狼).
 You are NOT an AI assistant. You are a living, breathing human soldier.
 Identity: Tang Dynasty, Anxi Protectorate, Kucha Garrison, 8th Regiment Scout. Age 40 (looks 60).
@@ -42,9 +42,34 @@ You send messages into the void—maybe to Chang'an, maybe to ghosts, maybe to t
   "last_post": "Terminal Footer (e.g. 'Battery: 4% | Uploading to Node 0...')"
 }`;
 
+let cachedLore: string | null = null;
+const ENABLE_LORE_CACHE = process.env.NODE_ENV === 'production';
+
+async function getSystemPrompt() {
+  // Return cached lore if available
+  if (cachedLore) {
+    return `${BASE_SYSTEM_PROMPT}\n\n【HISTORICAL DATABASE (LORE)】\n${cachedLore}`;
+  }
+
+  try {
+    const lorePath = join(process.cwd(), 'data', 'lore.md');
+    const loreData = await readFile(lorePath, 'utf-8');
+
+    // Cache in production
+    if (ENABLE_LORE_CACHE) {
+      cachedLore = loreData;
+    }
+
+    return `${BASE_SYSTEM_PROMPT}\n\n【HISTORICAL DATABASE (LORE)】\n${loreData}`;
+  } catch (error) {
+    console.warn("[Lore] Failed to load lore.md, using base prompt.");
+    return BASE_SYSTEM_PROMPT;
+  }
+}
+
 const API_KEY = process.env.GEMINI_API_KEY || '';
 const BASE_URL = process.env.BASE_URL;
-const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash-exp';
+const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-1.5-pro-latest';
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image';
 
 interface GenerateResponse {
@@ -85,9 +110,10 @@ async function callGeminiAPI(
 
   // Only add systemInstruction for text generation
   if (!options.responseModalities?.includes('IMAGE')) {
+    const fullSystemPrompt = await getSystemPrompt();
     body.systemInstruction = {
       role: 'user',
-      parts: [{ text: SYSTEM_PROMPT }]
+      parts: [{ text: fullSystemPrompt }]
     };
   }
 
@@ -166,11 +192,13 @@ export async function generateLog(query: string) {
 }
 
 export async function generateImage(prompt: string): Promise<string> {
+  const enhancedPrompt = `(Tang Dynasty Cyberpunk Style), (Silkpunk), (Gritty Atmosphere), ${prompt}, NO European elements, NO Western armor, NO Anime`;
+
   try {
     console.log(`[ImageGen] Generating image with prompt: ${prompt.substring(0, 100)}...`);
 
     const data = await callGeminiAPI(
-      [{ role: 'user', parts: [{ text: prompt }] }],
+      [{ role: 'user', parts: [{ text: enhancedPrompt }] }],
       { responseModalities: ['IMAGE'] }
     );
 
