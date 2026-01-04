@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateLog, generateImage } from '@/lib/gemini';
 
+const ENABLE_IMAGE_GENERATION = process.env.ENABLE_IMAGE_GENERATION === 'true';
+
 export async function POST(request: NextRequest) {
   try {
     const { query } = await request.json();
@@ -16,9 +18,13 @@ export async function POST(request: NextRequest) {
     console.log('=== IMAGE PROMPT ===');
     console.log(logData.imagePrompt);
     console.log('====================');
+    console.log(`Image generation: ${ENABLE_IMAGE_GENERATION ? 'ENABLED' : 'DISABLED'}`);
 
-    // Generate image URL
-    const imageUrl = await generateImage(logData.imagePrompt);
+    // Generate image URL only if enabled via env var
+    let imageUrl = '';
+    if (ENABLE_IMAGE_GENERATION) {
+      imageUrl = await generateImage(logData.imagePrompt);
+    }
 
     return NextResponse.json({
       ...logData,

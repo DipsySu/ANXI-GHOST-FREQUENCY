@@ -115,9 +115,8 @@ export function LogEntry({ log, onPlayAudio, isPlaying, lang }: LogEntryProps) {
       </div>
 
       <div
-        className={`text-lg leading-relaxed whitespace-pre-wrap ${
-          log.era === Era.GHOST_SIGNAL ? 'blur-[0.5px]' : ''
-        }`}
+        className={`text-lg leading-relaxed whitespace-pre-wrap ${log.era === Era.GHOST_SIGNAL ? 'blur-[0.5px]' : ''
+          }`}
       >
         {log.era === Era.GHOST_SIGNAL ? glitchText : log.content}
       </div>
@@ -136,11 +135,11 @@ export function LogEntry({ log, onPlayAudio, isPlaying, lang }: LogEntryProps) {
         </div>
       )}
 
-      {log.imagePrompt && (
+      {/* {log.imagePrompt && (
         <div className="mt-3 p-3 bg-black/40 border border-white/10 rounded text-xs font-mono text-gray-500">
           <span className="text-cyan-600 opacity-60">IMG_PROMPT:</span> {log.imagePrompt}
         </div>
-      )}
+      )} */}
 
       {log.lastPost && (
         <div className="mt-4 text-xs font-mono text-gray-500 text-right italic border-t border-white/5 pt-2">
