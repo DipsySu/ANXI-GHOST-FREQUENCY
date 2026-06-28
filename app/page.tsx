@@ -48,6 +48,14 @@ export default function Home() {
     setMounted(true);
   }, []);
 
+  // lock page scroll while the excavation gate is up
+  useEffect(() => {
+    if (!showGate) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [showGate]);
+
   const t = translations[lang];
   const era = active ? active.era : eraOf(year);
   const mem = active ? MEM[active.era] : MEM[era];
@@ -93,7 +101,7 @@ export default function Home() {
 
   return (
     <div className={`app${booted ? ' booted' : ''}${lowmem ? ' lowmem' : ''}`} data-era={era}>
-      <div className="cube">
+      <div className="cube" inert={showGate || undefined}>
         <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
 
         {/* header */}

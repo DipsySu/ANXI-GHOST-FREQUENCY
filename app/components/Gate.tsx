@@ -12,6 +12,7 @@ type Relic = { x: number; y: number; found: boolean; visible: boolean };
 export function Gate({ onUnlock, lang }: { onUnlock: () => void; lang: Language }) {
   const t = translations[lang];
   const soilRef = useRef<HTMLCanvasElement>(null);
+  const skipRef = useRef<HTMLButtonElement>(null);
   const [relics, setRelics] = useState<Relic[]>(() => POS.map((p) => ({ ...p, found: false, visible: false })));
   const [gone, setGone] = useState(false);
   const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -69,6 +70,14 @@ export function Gate({ onUnlock, lang }: { onUnlock: () => void; lang: Language 
     });
   }, []);
 
+  // keyboard path: excavate (reveal + collect) a relic without the pointer scrape
+  const excavate = useCallback((i: number) => {
+    setRelics((prev) => (prev[i] && !prev[i].found ? prev.map((x, j) => (j === i ? { ...x, visible: true, found: true } : x)) : prev));
+  }, []);
+
+  // move focus into the gate when it opens (cube is inert behind it)
+  useEffect(() => { skipRef.current?.focus(); }, []);
+
   // once every relic is recovered, run the boot sequence then hand off
   useEffect(() => {
     if (!allFound) return;
@@ -82,8 +91,14 @@ export function Gate({ onUnlock, lang }: { onUnlock: () => void; lang: Language 
 
   return (
     <div className={`gate${gone ? ' gone' : ''}`}>
-      <button className="gate-skip" onClick={() => { setGone(true); setTimeout(onUnlock, reduce ? 50 : 300); }}>{t.skip}</button>
+      <button ref={skipRef} className="gate-skip" onClick={() => { setGone(true); setTimeout(onUnlock, reduce ? 50 : 300); }}>{t.skip}</button>
       <div className="gate-hint">{t.gate_hint}<b>{t.gate_hint2}</b></div>
+      {/* keyboard-accessible excavation: hidden until focused, then operable by Enter/Space */}
+      <div className="gate-kbd">
+        {relics.map((r, i) => !r.found && (
+          <button key={i} onClick={() => excavate(i)}>{t.kbd_relic} {i + 1} / {relics.length}</button>
+        ))}
+      </div>
       {relics.map((r, i) => !r.found && (
         <div key={i} className={`relic ${r.visible ? 'found' : 'hidden'}`} style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%` }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}

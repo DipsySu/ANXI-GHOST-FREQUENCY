@@ -80,7 +80,7 @@ const USE_SDK = BASE_URL
   ? false
   : process.env.USE_GEMINI_SDK !== 'false';
 
-console.log(`[Gemini] Using ${USE_SDK ? 'SDK' : 'REST API (fetch)'} mode`);
+if (process.env.NODE_ENV !== 'production') console.log(`[Gemini] Using ${USE_SDK ? 'SDK' : 'REST API (fetch)'} mode`);
 
 // ============================================================================
 // METHOD 1: REST API with fetch (for proxy/relay services)
@@ -301,9 +301,10 @@ export async function generateLog(query: string) {
 
   const parsed = JSON.parse(jsonMatch[0]);
 
-  // Determine era from year
+  // Determine era from year — clamp to the archive's range (640–808) so the UI dial/readout stay valid
   const yearMatch = parsed.year_str.match(/\d{3,4}/);
-  const year = yearMatch ? parseInt(yearMatch[0]) : 790;
+  const parsedYear = yearMatch ? parseInt(yearMatch[0]) : 790;
+  const year = Math.max(640, Math.min(808, Number.isFinite(parsedYear) ? parsedYear : 790));
 
   let era = 'GOLDEN_AGE';
   if (year >= 640 && year <= 750) era = 'GOLDEN_AGE';
