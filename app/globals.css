@@ -127,9 +127,11 @@ html,body{ margin:0; padding:0; background:#04060a; }
 .btn{ cursor:pointer; border:0; color:var(--ground); background:var(--accent); font-family:var(--px-font); font-size:13px; letter-spacing:.1em; text-transform:uppercase; padding:0 18px; display:flex; align-items:center; gap:8px;
   box-shadow:0 0 0 2px var(--lo), inset 2px 2px 0 0 rgba(255,255,255,.4), inset -3px -3px 0 0 rgba(0,0,0,.35); }
 .btn:hover{ filter:brightness(1.1); } .btn:active{ transform:translate(2px,2px); } .btn:disabled{ opacity:.45; cursor:not-allowed; }
+.drill-err{ max-width:980px; margin:0 auto 8px; padding:8px 12px; font-size:12px; letter-spacing:.06em; font-family:var(--px-font);
+  color:#ffe0da; background:color-mix(in srgb, var(--sig-bad) 16%, var(--lo)); box-shadow:0 0 0 2px var(--sig-bad); }
 .drill-meta{ max-width:980px; margin:8px auto 0; display:flex; justify-content:space-between; gap:10px; font-size:12px; color:color-mix(in srgb,var(--ink) 45%, transparent); }
-.drill-meta a{ color:color-mix(in srgb,var(--accent) 75%, var(--ink)); cursor:pointer; text-decoration:none; }
-.drill-meta a:hover{ text-decoration:underline; }
+.drill-meta a, .drill-meta .lnk{ color:color-mix(in srgb,var(--accent) 75%, var(--ink)); cursor:pointer; text-decoration:none; font:inherit; letter-spacing:inherit; border:0; background:none; padding:0; }
+.drill-meta a:hover, .drill-meta .lnk:hover{ text-decoration:underline; }
 
 /* ================= excavation gate ================= */
 .gate{ position:fixed; inset:0; z-index:90; }
@@ -145,8 +147,8 @@ html,body{ margin:0; padding:0; background:#04060a; }
 .relics-row i.on{ background:#37f0a0; box-shadow:0 0 0 2px #37f0a0; }
 .gate-hint{ position:absolute; left:0; right:0; top:48px; z-index:3; text-align:center; pointer-events:none; font-size:13px; letter-spacing:.14em; color:#cfeede; text-shadow:0 0 6px #000; font-family:var(--px-font); }
 .gate-hint b{ display:block; color:#37f0a0; margin-top:8px; font-size:12px; letter-spacing:.2em; font-weight:400; }
-.gate-skip{ position:absolute; right:18px; top:16px; z-index:4; cursor:pointer; pointer-events:auto; border:0; background:transparent; color:#5f7d72; font-family:var(--px-font); font-size:12px; letter-spacing:.1em; }
-.gate-skip:hover{ color:#37f0a0; }
+.gate-skip{ position:absolute; right:18px; top:16px; z-index:4; cursor:pointer; pointer-events:auto; border:0; background:rgba(8,20,16,.6); color:#9fd9c4; font-family:var(--px-font); font-size:12px; letter-spacing:.12em; padding:8px 12px; box-shadow:0 0 0 2px #2a7d5e; }
+.gate-skip:hover{ color:#04120c; background:#37f0a0; box-shadow:0 0 0 2px #37f0a0; }
 .boot{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:3; pointer-events:none; font-size:18px; letter-spacing:.18em; color:#37f0a0; text-align:center; opacity:0; text-shadow:0 0 10px #37f0a0; font-family:var(--px-font); }
 .boot.show{ opacity:1; }
 .crt-on{ position:fixed; inset:0; z-index:80; pointer-events:none; background:#dffaf0; opacity:0; }
@@ -166,5 +168,6 @@ html,body{ margin:0; padding:0; background:#04060a; }
 @media (max-width:680px){
   .shaft{ grid-template-columns:1fr; } .ruler{ display:none; } .rig{ margin:10px; }
   .hud{ width:100%; margin-left:0; justify-content:space-between; } .btn span.t{ display:none; }
-  .hero{ min-height:72vh; padding:18px; }
+  .hero{ min-height:60vh; padding:18px; }
+  .field .caret:not(.busy){ display:none; }
 }

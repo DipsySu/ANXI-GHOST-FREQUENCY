@@ -15,6 +15,7 @@ const RULER = [640, 690, 740, 766, 790, 808];
 export default function Home() {
   const [logs, setLogs] = useState<LogData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [era, setEra] = useState<Era>(Era.GOLDEN_AGE);
   const [booted, setBooted] = useState(false);
@@ -54,11 +55,15 @@ export default function Home() {
     const q = (override ?? input).trim();
     if (!q || loading) return;
     setLoading(true);
+    setError(null);
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 60000); // bound a hung backend so the error state can show
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q }),
+        signal: ctrl.signal,
       });
       if (!res.ok) throw new Error('generation failed');
       const log: LogData = await res.json();
@@ -68,7 +73,9 @@ export default function Home() {
       setInput('');
     } catch (err) {
       console.error(err);
+      setError(t.err);
     } finally {
+      clearTimeout(to);
       setLoading(false);
     }
   };
@@ -77,7 +84,7 @@ export default function Home() {
     <div className="app" data-era={era}>
       <Diorama era={showGate ? Era.GHOST_SIGNAL : era} />
 
-      <div className={`ui${booted ? ' booted' : ''}`}>
+      <div className={`ui${booted ? ' booted' : ''}`} inert={!booted || undefined}>
         {/* header */}
         <header className="rig box">
           <div className="rig-top">
@@ -135,16 +142,18 @@ export default function Home() {
 
         {/* drill */}
         <footer className="drill">
+          {error && <div className="drill-err" role="alert">{error}</div>}
           <div className="drill-row">
             <div className="field">
               <input
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => { setInput(e.target.value); if (error) setError(null); }}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder={t.input_placeholder}
+                aria-label={t.input_placeholder}
                 disabled={loading}
               />
-              <span className="caret">{loading ? '◜◝◞◟' : t.ready}</span>
+              <span className={`caret${loading ? ' busy' : ''}`}>{loading ? '◜◝◞◟' : t.ready}</span>
             </div>
             <button className="btn" onClick={() => handleSearch()} disabled={loading || !input.trim()}>
               ⛏ <span className="t">{t.dig}</span>
@@ -152,7 +161,7 @@ export default function Home() {
           </div>
           <div className="drill-meta">
             <span>{t.conn}</span>
-            <span><a onClick={() => { sessionStorage.removeItem(SESSION_KEY); setBooted(false); setShowGate(true); }}>{t.replay}</a> &nbsp;·&nbsp; {t.loss}</span>
+            <span><button type="button" className="lnk" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setBooted(false); setShowGate(true); }}>{t.replay}</button> &nbsp;·&nbsp; {t.loss}</span>
           </div>
         </footer>
       </div>

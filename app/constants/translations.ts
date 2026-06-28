@@ -18,6 +18,7 @@ export const translations = {
     freq_loc: 'POS',
     freq_state: 'STATE',
     empty: 'NO TRANSMISSIONS RECOVERED YET — TUNE A FREQUENCY BELOW',
+    err: '⚠ DIG FAILED — the signal could not be decoded. Check the link and try again.',
     visual: 'VISUAL_RECONSTRUCTION · 8-BIT',
     // gate
     skip: 'SKIP ▸',
@@ -46,6 +47,7 @@ export const translations = {
     freq_loc: '位置',
     freq_state: '状态',
     empty: '尚未发掘到任何信号 —— 在底部调谐一个频率',
+    err: '⚠ 挖掘失败 —— 信号未能解码,请检查连接后重试',
     visual: '画面重构 · 8-BIT',
     // gate
     skip: '跳过挖掘 ▸',

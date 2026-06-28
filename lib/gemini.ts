@@ -147,7 +147,8 @@ async function callViaFetch(
     };
   }
 
-  const response = await fetch(`${url}?key=${API_KEY}`, {
+  // API key goes in the header only — keep it out of the URL so it isn't captured by proxy/access logs
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -347,7 +348,7 @@ export async function generateImage(prompt: string): Promise<string> {
 
         // Save image
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `anxi_${timestamp}.png`;
+        const filename = `anxi_${timestamp}_${Math.random().toString(36).slice(2, 8)}.png`;
         const filepath = join(downloadsDir, filename);
 
         // Convert base64 to buffer and save

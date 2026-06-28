@@ -58,7 +58,7 @@ export function Gate({ onUnlock, lang }: { onUnlock: () => void; lang: Language 
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     ctx.save(); ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath(); ctx.arc(cx, cy, 52, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-    if (Math.random() > 0.82) checkReveal();
+    checkReveal();
   }, [checkReveal]);
 
   const collect = useCallback((i: number) => {
