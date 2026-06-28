@@ -38,3 +38,6 @@ public/downloads/*
 
 # review / QA artifacts (screenshots, etc.)
 review-artifacts/
+
+# design references (Claude Design exports)
+design/
