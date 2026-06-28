@@ -62,7 +62,7 @@ async function getSystemPrompt() {
     }
 
     return `${BASE_SYSTEM_PROMPT}\n\n【HISTORICAL DATABASE (LORE)】\n${loreData}`;
-  } catch (error) {
+  } catch {
     console.warn("[Lore] Failed to load lore.md, using base prompt.");
     return BASE_SYSTEM_PROMPT;
   }
@@ -109,7 +109,16 @@ async function callViaFetch(
   const baseUrl = BASE_URL || 'https://generativelanguage.googleapis.com';
   const url = `${baseUrl}/v1beta/models/${model}:generateContent`;
 
-  const body: any = {
+  const body: {
+    contents: typeof contents;
+    generationConfig: {
+      responseMimeType?: string;
+      responseModalities?: string[];
+      candidateCount?: number;
+      imageConfig?: { aspectRatio: string };
+    };
+    systemInstruction?: { role: string; parts: Array<{ text: string }> };
+  } = {
     contents,
     generationConfig: {},
   };
@@ -145,7 +154,7 @@ async function callViaFetch(
       'x-goog-api-key': API_KEY,
     },
     body: JSON.stringify(body),
-  }) as any;
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -159,20 +168,6 @@ async function callViaFetch(
 // METHOD 2: Official Google AI SDK (for direct API access)
 // ============================================================================
 
-interface SDKResponsePart {
-  text?: string;
-  inlineData?: {
-    data: string;
-    mimeType: string;
-  };
-}
-
-interface SDKResponseCandidate {
-  content: {
-    parts: SDKResponsePart[];
-  };
-}
-
 async function callViaSDK(
   model: string,
   userPrompt: string,
@@ -183,7 +178,8 @@ async function callViaSDK(
 
   console.log(`[Gemini SDK] Calling model: ${model}`);
 
-  // Build request parameters
+  // Build request parameters (shape is driven by the @google/genai SDK)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const requestParams: any = {
     model,
     contents: userPrompt,
@@ -195,6 +191,7 @@ async function callViaSDK(
   }
 
   // Add response config
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const config: any = {};
   if (options.responseMimeType) {
     config.responseMimeType = options.responseMimeType;
@@ -217,7 +214,8 @@ async function callViaSDK(
     fullText = response.text;
   }
 
-  // Check for image data (if any)
+  // Check for image data (if any) — SDK response shape is read dynamically
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const responseObj = response as any;
   if (responseObj.candidates?.[0]?.content?.parts) {
     for (const part of responseObj.candidates[0].content.parts) {
@@ -295,7 +293,7 @@ export async function generateLog(query: string) {
   }
 
   // Parse JSON from response
-  let jsonMatch = response.match(/\{[\s\S]*\}/);
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error('No JSON found in response');
   }

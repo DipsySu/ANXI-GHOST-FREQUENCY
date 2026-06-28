@@ -35,3 +35,6 @@ next-env.d.ts
 # downloads
 public/downloads/*
 !public/downloads/.gitkeep
+
+# review / QA artifacts (screenshots, etc.)
+review-artifacts/
