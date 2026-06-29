@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, type CSSProperties } from 'react';
 import { Era } from '../types';
 
 const MIN = 640, MAX = 808;
@@ -10,11 +10,29 @@ const ZONES: { era: Era; from: number; to: number; color: string }[] = [
   { era: Era.WASTELAND, from: 761, to: 790, color: '217,138,55' },
   { era: Era.GHOST_SIGNAL, from: 791, to: 808, color: '53,232,154' },
 ];
-const SCALE = [640, 680, 720, 760, 800, 808];
-const TICKS = Array.from({ length: (MAX - MIN) / 10 + 1 }, (_, i) => MIN + i * 10);
+const SCALE = [640, 680, 720, 760, 808];
 const pct = (y: number) => ((y - MIN) / (MAX - MIN)) * 100;
+const eraRGB = (era: Era) => ZONES.find((z) => z.era === era)?.color ?? '58,208,192';
+const freqOf = (year: number) => ('00' + (year / 10).toFixed(2)).slice(-6);
 
-export function Tuner({ year, onScrub, onCommit }: { year: number; onScrub: (y: number) => void; onCommit?: (y: number) => void }) {
+type FindLog = { id: string; year: number; era: Era };
+
+/** Strata band — the frequency dial drawn as an excavation section.
+ *  Zone widths are proportional to each era's real duration (golden age is widest),
+ *  the playhead is a pickaxe drilling through time, and recovered logs pin as find-tags. */
+export function Tuner({
+  year, onScrub, onCommit, logs = [], onPick, activeId, eraNames, depthText, label = 'STRATA BAND',
+}: {
+  year: number;
+  onScrub: (y: number) => void;
+  onCommit?: (y: number) => void;
+  logs?: FindLog[];
+  onPick?: (id: string) => void;
+  activeId?: string | null;
+  eraNames?: Record<Era, string>;
+  depthText?: string;
+  label?: string;
+}) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
@@ -22,6 +40,7 @@ export function Tuner({ year, onScrub, onCommit }: { year: number; onScrub: (y: 
     const el = trackRef.current;
     if (!el) return year;
     const r = el.getBoundingClientRect();
+    if (r.width <= 0) return year;
     const p = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
     return Math.round(MIN + p * (MAX - MIN));
   };
@@ -44,48 +63,67 @@ export function Tuner({ year, onScrub, onCommit }: { year: number; onScrub: (y: 
   }, [onCommit]);
 
   return (
-    <div className="tuner">
+    <div className="strata">
+      <div className="strata-head">
+        <span>{label}</span>
+        <span>{depthText ? `${depthText} · ` : ''}<b>{freqOf(year)}</b> MHz</span>
+      </div>
       <div
-        className="track"
+        className="band"
         ref={trackRef}
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
         role="slider"
-        aria-label="频率调谐 · 年份"
+        aria-label="地层频带 · 年份 / strata band · year"
         aria-valuemin={MIN}
         aria-valuemax={MAX}
         aria-valuenow={year}
+        aria-valuetext={`${year} AD`}
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowLeft') { e.preventDefault(); const y = Math.max(MIN, year - 1); onScrub(y); onCommit?.(y); }
-          else if (e.key === 'ArrowRight') { e.preventDefault(); const y = Math.min(MAX, year + 1); onScrub(y); onCommit?.(y); }
+          let y = year;
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') y = Math.max(MIN, year - 1);
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') y = Math.min(MAX, year + 1);
+          else if (e.key === 'PageDown') y = Math.max(MIN, year - 10);
+          else if (e.key === 'PageUp') y = Math.min(MAX, year + 10);
+          else if (e.key === 'Home') y = MIN;
+          else if (e.key === 'End') y = MAX;
+          else return;
+          e.preventDefault(); onScrub(y); onCommit?.(y);
         }}
       >
-        <div className="zones">
-          {ZONES.map((z) => (
-            <div
-              key={z.era}
-              className="zone"
-              style={{
-                flexBasis: `${((z.to - z.from + 1) / (MAX - MIN + 1)) * 100}%`,
-                background: `linear-gradient(180deg, rgba(${z.color},.04), rgba(${z.color},.18))`,
-              }}
-            />
-          ))}
-        </div>
-        <div className="ticks">
-          {TICKS.map((y) => (
-            <i key={y} className={`tk${y % 40 === 0 ? ' major' : ''}`} style={{ left: `${pct(y)}%` }} />
-          ))}
-        </div>
-        <div className="head" style={{ left: `${pct(year)}%` }}>
-          <span className="knob" />
-          <span className="yrbubble">{year}</span>
+        {ZONES.map((z) => (
+          <div key={z.era} className="zone" style={{ flexGrow: z.to - z.from + 1, flexBasis: 0, ['--zc']: z.color } as CSSProperties}>
+            <span className="zfill" />
+            <span className="zlab">{eraNames?.[z.era] ?? ''}<b>{z.from}–{z.to}</b></span>
+          </div>
+        ))}
+
+        {/* recovered-log markers — decorative (aria-hidden); keyboard/AT navigate via the archive chips.
+            kept mouse-clickable as a convenience, and a stopPropagation so a click doesn't scrub the slider */}
+        {logs.map((l) => (
+          <span
+            key={l.id}
+            className={`find${activeId === l.id ? ' on' : ''}`}
+            aria-hidden="true"
+            style={{ left: `${pct(l.year)}%`, ['--ft']: `rgb(${eraRGB(l.era)})` } as CSSProperties}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onPick?.(l.id)}
+          >
+            <i /><b>{l.year}</b>
+          </span>
+        ))}
+
+        <div className="play" style={{ left: `${pct(year)}%` }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="pick" src="/sprites/ui_pickaxe.png" alt="" />
+          <span className="line" />
+          <span className="bub">{year} AD</span>
         </div>
       </div>
-      <div className="scale" aria-hidden="true">
+      <div className="axis" aria-hidden="true">
         {SCALE.map((y) => <span key={y}>{y}</span>)}
       </div>
     </div>
