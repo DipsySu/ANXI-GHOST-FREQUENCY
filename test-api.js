@@ -156,6 +156,13 @@ async function main() {
   console.log('═════════════════════════════════════════════');
   console.log('   Google API Connectivity Test');
   console.log('═════════════════════════════════════════════');
+
+  if (!API_KEY) {
+    console.error('❌ Missing GEMINI_API_KEY. Export it in your shell or load it from an ignored .env*.local file.');
+    process.exitCode = 1;
+    return;
+  }
+
   console.log(`API Key: ${API_KEY.slice(0, 10)}...${API_KEY.slice(-4)}`);
   console.log(`BASE_URL: ${BASE_URL || '(none - using direct)'}`);
   console.log(`Node.js version: ${process.version}`);
