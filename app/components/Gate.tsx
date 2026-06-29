@@ -5,11 +5,18 @@ import { translations, Language } from '../constants/translations';
 import { RELIC_POOL } from '../constants/assets';
 import type { DigSite } from '../constants/sites';
 
-const COUNT = 3;        // relics to recover (keeps the 3-dot HUD)
-const BRUSH = 50;       // brush radius in CSS px
+const COUNT = 3;            // relics to recover (keeps the 3-dot HUD)
+const MAXHP = 3;            // dig passes to break one soil tile
+const REVEAL_FRAC = 0.55;   // fraction of a relic's covering tiles cleared before it surfaces
+const RELIC_PX = 86;        // on-screen relic size (matches the .relic DOM sprite)
+const DIRT = ['#241a0f', '#2c2113', '#1d1509', '#332817', '#281d10']; // tile base palette
+const DIG_CD = 38;          // ms cooldown per tile per stroke
+const STEP_F = 0.45;        // pointer-stroke sample spacing, in tiles
 
 type Relic = { x: number; y: number; src: string; found: boolean; visible: boolean };
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; kind: 'dust' | 'sand' };
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; kind: 'chunk' | 'dust' | 'spark'; color: string };
+type Flash = { x: number; y: number; life: number; max: number };
+type GridState = { T: number; cols: number; rows: number; W: number; H: number; dpr: number };
 
 function shuffle<T>(arr: T[]): T[] {
   const r = [...arr];
@@ -26,18 +33,22 @@ function makeRelics(): Relic[] {
   const pts: { x: number; y: number }[] = [];
   let guard = 0;
   while (pts.length < COUNT && guard++ < 600) {
-    const x = 0.2 + Math.random() * 0.6;
-    const y = 0.34 + Math.random() * 0.4;
+    const x = 0.22 + Math.random() * 0.56;
+    const y = 0.36 + Math.random() * 0.4;
     if (pts.every((p) => Math.hypot(p.x - x, p.y - y) > 0.22)) pts.push({ x, y });
   }
   while (pts.length < COUNT) pts.push({ x: 0.3 + pts.length * 0.2, y: 0.5 });
   return pts.map((p, i) => ({ ...p, src: kinds[i % kinds.length], found: false, visible: false }));
 }
 
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
 export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Language; site: DigSite }) {
   const t = translations[lang];
-  const soilRef = useRef<HTMLCanvasElement>(null);
-  const fxRef = useRef<HTMLCanvasElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const groundRef = useRef<HTMLCanvasElement>(null);   // buried relics + soil base (revealed as tiles clear)
+  const tilesRef = useRef<HTMLCanvasElement>(null);     // breakable soil tile grid (the dig surface)
+  const fxRef = useRef<HTMLCanvasElement>(null);        // particles · tool · flashes
   const skipRef = useRef<HTMLButtonElement>(null);
   const [relics, setRelics] = useState<Relic[]>(makeRelics);
   const [gone, setGone] = useState(false);
@@ -45,151 +56,395 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   const collected = relics.filter((r) => r.found).length;
   const allFound = relics.length > 0 && collected === relics.length;
 
-  // fx-layer state (kept off React so the render loop never re-mounts)
+  // --- mutable engine state (kept off React so the render loop never re-mounts) ---
+  const grid = useRef<GridState>({ T: 40, cols: 0, rows: 0, W: 0, H: 0, dpr: 1 });
+  const hp = useRef<Uint8Array>(new Uint8Array(0));
+  const lastDug = useRef<Float64Array>(new Float64Array(0));
+  const tilesDirty = useRef(true);
+  const groundDirty = useRef(true);
   const particles = useRef<Particle[]>([]);
-  const brush = useRef<{ x: number; y: number; on: boolean }>({ x: 0, y: 0, on: false });
+  const flashes = useRef<Flash[]>([]);
+  const shake = useRef(0);
+  const tool = useRef({ x: -1, y: -1, on: false, down: false, near: 0 });
+  const coarse = useRef(false);      // touch pointer → wider brush
+  const lastPt = useRef<{ x: number; y: number } | null>(null);
+  const revealing = useRef<Set<number>>(new Set()); // dedupe reveal FX before React commits
+  const relicImgs = useRef<Record<string, HTMLImageElement>>({});
+  const relicsRef = useRef<Relic[]>(relics);
+  const audio = useRef<AudioContext | null>(null);
+  const lastTick = useRef(0);
+  const lastThunk = useRef(0);
 
-  // paint the data-quicksand: layered sand + drifting dust with buried site markings
-  useEffect(() => {
-    const canvas = soilRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+  useEffect(() => { relicsRef.current = relics; groundDirty.current = true; }, [relics]);
+
+  // --- tiny WebAudio juice (no assets); started on first dig gesture, off under reduced-motion ---
+  const blip = useCallback((freq: number, dur: number, type: OscillatorType, gain: number, slideTo?: number) => {
+    const ac = audio.current;
+    if (reduce || !ac) return;
+    const t0 = ac.currentTime;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t0); osc.stop(t0 + dur);
+  }, [reduce]);
+  const playTick = useCallback(() => { const n = performance.now(); if (n - lastTick.current < 32) return; lastTick.current = n; blip(420 + Math.random() * 120, 0.025, 'square', 0.022); }, [blip]);
+  const playThunk = useCallback(() => { const n = performance.now(); if (n - lastThunk.current < 40) return; lastThunk.current = n; blip(110 + Math.random() * 40, 0.08, 'square', 0.06, 70); }, [blip]);
+  const playDing = useCallback(() => { blip(740, 0.12, 'triangle', 0.09, 1180); window.setTimeout(() => blip(1180, 0.1, 'triangle', 0.06), 70); }, [blip]);
+
+  // --- layout: size canvases to the viewport; remap dig progress across a resize (don't wipe it) ---
+  const layout = useCallback(() => {
     const W = window.innerWidth, H = window.innerHeight;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const base = ctx.createLinearGradient(0, 0, 0, H);
-    base.addColorStop(0, '#100d09'); base.addColorStop(1, '#0a0806');
-    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
-    // coarse sand clumps
-    for (let i = 0; i < 2600; i++) {
-      const x = Math.random() * W, y = Math.random() * H, s = Math.random() * 3 + 1;
-      ctx.fillStyle = Math.random() > 0.5 ? '#241e15' : '#070605'; ctx.fillRect(x, y, s, s);
-    }
-    // fine top dust (lighter)
-    for (let i = 0; i < 1500; i++) {
-      ctx.fillStyle = 'rgba(150,130,96,.06)';
-      ctx.fillRect(Math.random() * W, Math.random() * H, 2, 1);
-    }
-    // sediment strata
-    ctx.strokeStyle = 'rgba(60,48,30,.16)'; ctx.lineWidth = 1;
-    for (let y = H * 0.18; y < H; y += 48) {
-      ctx.beginPath(); ctx.moveTo(0, y + Math.sin(y) * 5); ctx.lineTo(W, y - 4); ctx.stroke();
-    }
-    ctx.fillStyle = '#1c1810'; ctx.font = '16px ui-monospace,monospace';
-    ctx.fillText(`FIELD_${site.code}`, W * 0.12, H * 0.28);
-    ctx.fillText(`${site.mark} // ${site.depth}`, W * 0.58, H * 0.78);
-  }, [site.code, site.depth, site.mark]);
-
-  // size the fx canvas to match the viewport
-  useEffect(() => {
-    const canvas = fxRef.current; if (!canvas) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = window.innerWidth * dpr; canvas.height = window.innerHeight * dpr;
-    canvas.getContext('2d')?.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }, []);
-
-  // reveal any relic whose soil has been scraped thin enough to see through
-  const checkReveal = useCallback(() => {
-    const canvas = soilRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    setRelics((prev) => {
-      let changed = false;
-      const next = prev.map((r) => {
-        if (r.found || r.visible) return r;
-        const a = ctx.getImageData(r.x * window.innerWidth * dpr, r.y * window.innerHeight * dpr, 1, 1).data[3];
-        if (a < 40) { changed = true; return { ...r, visible: true }; }
-        return r;
-      });
-      return changed ? next : prev;
-    });
-  }, []);
-
-  // a brush stroke: feather the soil away (reads as sweeping dust) and kick up dust + sand
-  const paint = useCallback((cx: number, cy: number) => {
-    const canvas = soilRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    brush.current = { x: cx, y: cy, on: true };
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, BRUSH);
-    g.addColorStop(0, 'rgba(0,0,0,1)');
-    g.addColorStop(0.55, 'rgba(0,0,0,.55)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(cx, cy, BRUSH, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-    if (!reduce) {
-      for (let i = 0; i < 2; i++) particles.current.push({
-        x: cx + (Math.random() - 0.5) * BRUSH, y: cy + (Math.random() - 0.5) * 20,
-        vx: (Math.random() - 0.5) * 0.5, vy: -0.3 - Math.random() * 0.5,
-        life: 0, max: 28 + Math.random() * 20, size: 5 + Math.random() * 7, kind: 'dust',
-      });
-      for (let i = 0; i < 4; i++) {
-        const a = Math.random() * Math.PI * 2, sp = 0.6 + Math.random() * 1.8;
-        particles.current.push({
-          x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.4,
-          life: 0, max: 16 + Math.random() * 14, size: 1 + Math.random() * 2, kind: 'sand',
-        });
+    const T = Math.max(30, Math.round(Math.min(W, H) / 22));
+    const cols = Math.ceil(W / T), rows = Math.ceil(H / T);
+    const prev = grid.current, prevHp = hp.current;
+    const next = new Uint8Array(cols * rows);
+    if (prevHp.length && prev.cols && prev.rows) {
+      // remap by normalized cell center so a resize keeps the hole you already dug
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const nx = (c + 0.5) * T / W, ny = (r + 0.5) * T / H;
+        const oc = clamp(Math.floor(nx * prev.W / prev.T), 0, prev.cols - 1);
+        const or = clamp(Math.floor(ny * prev.H / prev.T), 0, prev.rows - 1);
+        next[r * cols + c] = prevHp[or * prev.cols + oc];
       }
-      if (particles.current.length > 240) particles.current.splice(0, particles.current.length - 240);
+    } else {
+      next.fill(MAXHP);
     }
-    checkReveal();
-  }, [checkReveal, reduce]);
+    grid.current = { T, cols, rows, W, H, dpr };
+    hp.current = next;
+    lastDug.current = new Float64Array(cols * rows);
+    for (const cv of [groundRef.current, tilesRef.current, fxRef.current]) {
+      if (!cv) continue;
+      cv.width = W * dpr; cv.height = H * dpr;
+      const ctx = cv.getContext('2d');
+      if (ctx) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.imageSmoothingEnabled = false; }
+    }
+    tilesDirty.current = true; groundDirty.current = true;
+  }, []);
 
-  // fx render loop — particles + brush ring on a layer that never blocks the soil's pointer events
-  useEffect(() => {
+  // --- ground: soil base + buried relics drawn dim (the tile layer on top hides them until dug) ---
+  const drawGround = useCallback(() => {
+    const cv = groundRef.current; const ctx = cv?.getContext('2d'); if (!cv || !ctx) return;
+    const { W, H } = grid.current;
+    ctx.clearRect(0, 0, W, H);
+    const base = ctx.createLinearGradient(0, 0, 0, H);
+    base.addColorStop(0, '#0e0b07'); base.addColorStop(1, '#070504');
+    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#171208'; ctx.font = '15px ui-monospace, monospace';
+    ctx.fillText(`FIELD_${site.code}`, W * 0.1, H * 0.22);
+    ctx.fillText(`${site.mark} // ${site.depth}`, W * 0.6, H * 0.8);
+    for (const r of relicsRef.current) {
+      const img = relicImgs.current[r.src];
+      if (!img || !img.complete || img.naturalWidth === 0) continue;
+      const cx = r.x * W, cy = r.y * H;
+      ctx.save();
+      if (r.found) { ctx.filter = 'sepia(1) saturate(2) brightness(.9)'; ctx.globalAlpha = 0.85; }
+      else if (r.visible) { ctx.filter = 'none'; ctx.globalAlpha = 1; }
+      else { ctx.filter = 'grayscale(.65) brightness(.5)'; ctx.globalAlpha = 0.85; }
+      ctx.drawImage(img, cx - RELIC_PX / 2, cy - RELIC_PX / 2, RELIC_PX, RELIC_PX);
+      ctx.restore();
+    }
+  }, [site.code, site.mark, site.depth]);
+
+  // --- tiles: chunky dirt blocks with bevel, crack stages, and recessed-depth shadow at hole rims ---
+  const drawTiles = useCallback(() => {
+    const cv = tilesRef.current; const ctx = cv?.getContext('2d'); if (!cv || !ctx) return;
+    const { T, cols, rows, W, H } = grid.current;
+    ctx.clearRect(0, 0, W, H);
+    const h = hp.current;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = h[r * cols + c];
+        if (v <= 0) continue;
+        const x = c * T, y = r * T;
+        const seed = (r * 73 + c * 131) & 3;
+        ctx.fillStyle = DIRT[seed];
+        ctx.fillRect(x, y, T, T);
+        ctx.fillStyle = 'rgba(0,0,0,.28)';
+        ctx.fillRect(x + ((c * 7) % T), y + ((r * 5) % T), 2, 2);
+        ctx.fillRect(x + ((c * 13 + 6) % T), y + ((r * 11 + 9) % T), 2, 2);
+        // pixel bevel — light top/left, dark bottom/right
+        ctx.fillStyle = 'rgba(150,120,76,.30)'; ctx.fillRect(x, y, T, 2); ctx.fillRect(x, y, 2, T);
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, y + T - 2, T, 2); ctx.fillRect(x + T - 2, y, 2, T);
+        // recessed depth: darken edges facing an already-dug (empty) neighbour
+        ctx.fillStyle = 'rgba(0,0,0,.5)';
+        if (c > 0 && h[r * cols + c - 1] <= 0) ctx.fillRect(x, y, 4, T);
+        if (c < cols - 1 && h[r * cols + c + 1] <= 0) ctx.fillRect(x + T - 4, y, 4, T);
+        if (r > 0 && h[(r - 1) * cols + c] <= 0) ctx.fillRect(x, y, T, 4);
+        if (r < rows - 1 && h[(r + 1) * cols + c] <= 0) ctx.fillRect(x, y + T - 4, T, 4);
+        if (v < MAXHP) {
+          ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x + T * 0.3, y + 3); ctx.lineTo(x + T * 0.5, y + T * 0.55); ctx.lineTo(x + T * 0.38, y + T - 3); ctx.stroke();
+        }
+        if (v === 1) {
+          ctx.fillStyle = 'rgba(120,96,58,.22)'; ctx.fillRect(x + 2, y + 2, T - 4, T - 4);
+          ctx.strokeStyle = 'rgba(0,0,0,.55)';
+          ctx.beginPath(); ctx.moveTo(x + T * 0.66, y + 4); ctx.lineTo(x + T * 0.52, y + T * 0.5); ctx.lineTo(x + T * 0.7, y + T - 4); ctx.stroke();
+          ctx.clearRect(x, y, 4, 4); ctx.clearRect(x + T - 5, y + T - 5, 5, 5); ctx.clearRect(x + T - 4, y, 4, 4);
+        }
+      }
+    }
+  }, []);
+
+  const burst = useCallback((x: number, y: number) => {
     if (reduce) return;
-    const canvas = fxRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const ps = particles.current;
+    const col = DIRT[(Math.random() * DIRT.length) | 0];
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.9 + Math.random() * 2.6;
+      ps.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.1, life: 0, max: 16 + Math.random() * 16, size: 2 + Math.random() * 3, kind: 'chunk', color: col });
+    }
+    if (ps.length > 340) ps.splice(0, ps.length - 340);
+  }, [reduce]);
+
+  // pixel-chunk dust kicked up by the tool while digging
+  const toolDust = useCallback((x: number, y: number) => {
+    if (reduce) return;
+    for (let i = 0; i < 2; i++) particles.current.push({ x: x + (Math.random() - 0.5) * 26, y: y + (Math.random() - 0.5) * 10, vx: (Math.random() - 0.5) * 0.6, vy: -0.4 - Math.random() * 0.6, life: 0, max: 22 + Math.random() * 14, size: 2 + Math.random() * 2, kind: 'dust', color: '198,176,132' });
+  }, [reduce]);
+
+  const revealFx = useCallback((cx: number, cy: number) => {
+    playDing();
+    if (reduce) return;
+    flashes.current.push({ x: cx, y: cy, life: 0, max: 18 });
+    shake.current = 9;
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 1.2 + Math.random() * 3.2;
+      particles.current.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0, max: 18 + Math.random() * 18, size: 2 + Math.random() * 2, kind: 'spark', color: '231,178,77' });
+    }
+  }, [reduce, playDing]);
+
+  // collect: a tight "lock-in" stamp — deliberately smaller than the reveal so the two read differently
+  const collectFx = useCallback((cx: number, cy: number) => {
+    blip(520, 0.05, 'square', 0.05, 760);
+    if (reduce) return;
+    for (let i = 0; i < 8; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.8 + Math.random() * 2;
+      particles.current.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.6, life: 0, max: 14 + Math.random() * 12, size: 2, kind: 'spark', color: '231,178,77' });
+    }
+  }, [blip, reduce]);
+
+  const clearedFrac = useCallback((r: Relic) => {
+    const { T, cols, rows, W, H } = grid.current;
+    const cx = r.x * W, cy = r.y * H, half = RELIC_PX / 2;
+    const c0 = clamp(Math.floor((cx - half) / T), 0, cols - 1), c1 = clamp(Math.floor((cx + half) / T), 0, cols - 1);
+    const r0 = clamp(Math.floor((cy - half) / T), 0, rows - 1), r1 = clamp(Math.floor((cy + half) / T), 0, rows - 1);
+    let total = 0, clear = 0;
+    for (let rr = r0; rr <= r1; rr++) for (let cc = c0; cc <= c1; cc++) { total++; if (hp.current[rr * cols + cc] <= 0) clear++; }
+    return total ? clear / total : 0;
+  }, []);
+
+  // dedupe with revealing-set so a relic only fires its reveal FX once, regardless of React timing
+  const checkReveals = useCallback(() => {
+    const { W, H } = grid.current;
+    const newly: number[] = [];
+    relicsRef.current.forEach((r, i) => {
+      if (r.found || r.visible || revealing.current.has(i)) return;
+      if (clearedFrac(r) >= REVEAL_FRAC) { revealing.current.add(i); newly.push(i); }
+    });
+    if (newly.length === 0) return;
+    setRelics((prev) => prev.map((r, i) => (newly.includes(i) ? { ...r, visible: true } : r)));
+    newly.forEach((i) => { const r = relicsRef.current[i]; revealFx(r.x * W, r.y * H); });
+  }, [clearedFrac, revealFx]);
+
+  // a dig stroke at (cx,cy): center-weighted HP knockoff (2 inner / 1 outer), throttled per tile
+  const dig = useCallback((cx: number, cy: number) => {
+    const { T, cols, rows } = grid.current;
+    const rad = T * (coarse.current ? 1.55 : 1.3);
+    const inner = rad * 0.65;
+    const now = performance.now();
+    const c0 = clamp(Math.floor((cx - rad) / T), 0, cols - 1), c1 = clamp(Math.floor((cx + rad) / T), 0, cols - 1);
+    const r0 = clamp(Math.floor((cy - rad) / T), 0, rows - 1), r1 = clamp(Math.floor((cy + rad) / T), 0, rows - 1);
+    let changed = false, broke = false, chipped = false;
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const idx = r * cols + c;
+        const before = hp.current[idx];
+        if (before <= 0) continue;
+        const tx = c * T + T / 2, ty = r * T + T / 2;
+        const d = Math.hypot(tx - cx, ty - cy);
+        if (d > rad) continue;
+        if (now - lastDug.current[idx] < DIG_CD) continue;
+        lastDug.current[idx] = now;
+        hp.current[idx] = Math.max(0, before - (d <= inner ? 2 : 1));
+        changed = true;
+        if (hp.current[idx] === 0) { burst(tx, ty); broke = true; } else chipped = true;
+      }
+    }
+    if (changed) { tilesDirty.current = true; toolDust(cx, cy); checkReveals(); }
+    if (broke) playThunk(); else if (chipped) playTick();
+  }, [burst, toolDust, checkReveals, playThunk, playTick]);
+
+  // load relic sprites for the canvas (DOM <img> still drives click/keyboard + the reveal pop)
+  useEffect(() => {
+    let live = true;
+    relics.forEach((r) => {
+      if (relicImgs.current[r.src]) return;
+      const img = new Image();
+      img.onload = () => { if (live) groundDirty.current = true; };
+      img.src = r.src;
+      relicImgs.current[r.src] = img;
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // size + initial paint; remap (not wipe) on resize, debounced
+  useEffect(() => {
+    layout();
+    let raf = 0;
+    const onResize = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(layout); };
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('resize', onResize); cancelAnimationFrame(raf); };
+  }, [layout]);
+
+  // the one render loop: repaint dirty layers + animate fx
+  useEffect(() => {
     let raf = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
-      const W = window.innerWidth, H = window.innerHeight;
+      if (tilesDirty.current) { drawTiles(); tilesDirty.current = false; }
+      if (groundDirty.current) { drawGround(); groundDirty.current = false; }
+      const cv = fxRef.current; const ctx = cv?.getContext('2d'); if (!cv || !ctx) return;
+      const { W, H } = grid.current;
+
+      // screen shake (reveal only) — applied to the whole gate, decays fast
+      if (rootRef.current) {
+        if (shake.current > 0.4) {
+          shake.current *= 0.82;
+          rootRef.current.style.transform = `translate(${(Math.random() - 0.5) * shake.current}px,${(Math.random() - 0.5) * shake.current}px)`;
+        } else if (rootRef.current.style.transform) {
+          shake.current = 0; rootRef.current.style.transform = '';
+        }
+      }
+
       ctx.clearRect(0, 0, W, H);
+
       const ps = particles.current;
       for (let i = ps.length - 1; i >= 0; i--) {
         const p = ps[i];
         p.life++; p.x += p.vx; p.y += p.vy;
-        if (p.kind === 'sand') { p.vy += 0.14; p.vx *= 0.98; }
-        else { p.vy -= 0.01; p.size += 0.18; }
+        if (p.kind === 'chunk') { p.vy += 0.24; p.vx *= 0.99; }
+        else if (p.kind === 'spark') { p.vy += 0.05; p.vx *= 0.96; p.vy *= 0.96; }
+        else { p.vy -= 0.02; }
         const k = 1 - p.life / p.max;
         if (k <= 0) { ps.splice(i, 1); continue; }
-        if (p.kind === 'dust') {
-          ctx.fillStyle = `rgba(180,160,120,${0.16 * k})`;
-          ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
-        } else {
-          ctx.fillStyle = `rgba(120,150,130,${0.7 * k})`;
-          ctx.fillRect(p.x, p.y, p.size, p.size);
-        }
+        if (p.kind === 'dust') { ctx.fillStyle = `rgba(${p.color},${0.5 * k})`; ctx.fillRect(p.x, p.y, p.size, p.size); }
+        else if (p.kind === 'spark') { ctx.fillStyle = `rgba(${p.color},${k})`; ctx.fillRect(p.x, p.y, p.size, p.size); }
+        else { ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, k); ctx.fillRect(p.x, p.y, p.size, p.size); ctx.globalAlpha = 1; }
       }
-      const b = brush.current;
-      if (b.on) {
-        ctx.strokeStyle = 'rgba(95,224,122,.4)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(b.x, b.y, BRUSH * 0.7, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = 'rgba(95,224,122,.14)';
-        ctx.beginPath(); ctx.arc(b.x, b.y, BRUSH, 0, Math.PI * 2); ctx.stroke();
+
+      const fs = flashes.current;
+      for (let i = fs.length - 1; i >= 0; i--) {
+        const f = fs[i]; f.life++;
+        const k = 1 - f.life / f.max;
+        if (k <= 0) { fs.splice(i, 1); continue; }
+        ctx.strokeStyle = `rgba(231,178,77,${k})`; ctx.lineWidth = 2;
+        const rad = (1 - k) * 70 + 10;
+        ctx.strokeRect(f.x - rad, f.y - rad, rad * 2, rad * 2);
+        ctx.fillStyle = `rgba(255,247,230,${k * 0.5})`;
+        ctx.fillRect(f.x - RELIC_PX / 2, f.y - RELIC_PX / 2, RELIC_PX, RELIC_PX);
+      }
+
+      // tool: a pixel "detector" ring — turns gold + tightens as it nears a buried relic
+      const tl = tool.current;
+      if (tl.on && tl.x >= 0) {
+        const T2 = grid.current.T;
+        const hintNear = clamp(T2 * 3.5, 90, 170);
+        let near = 0;
+        for (const r of relicsRef.current) {
+          if (r.found || r.visible) continue;
+          near = Math.max(near, Math.max(0, 1 - Math.hypot(r.x * W - tl.x, r.y * H - tl.y) / hintNear));
+        }
+        tl.near = near;
+        const pulse = reduce ? 0.7 : 0.5 + 0.5 * Math.sin(performance.now() / (near > 0 ? 90 : 240));
+        const col = `rgba(${Math.round(95 + 136 * near)},${Math.round(224 - 46 * near)},${Math.round(122 - 45 * near)},`;
+        ctx.strokeStyle = col + (0.5 + 0.4 * pulse * (0.5 + near)) + ')'; ctx.lineWidth = 2;
+        const rr = T2 * 1.35;
+        ctx.strokeRect(tl.x - rr, tl.y - rr, rr * 2, rr * 2);
+        ctx.strokeStyle = col + '0.85)';
+        ctx.beginPath(); ctx.moveTo(tl.x - 7, tl.y); ctx.lineTo(tl.x + 7, tl.y); ctx.moveTo(tl.x, tl.y - 7); ctx.lineTo(tl.x, tl.y + 7); ctx.stroke();
+        // "hot" cue: corner ticks that grow as you near a relic (without pinpointing it)
+        if (near > 0.35) {
+          const tk = 4 + near * 7, o = rr + 3;
+          ctx.lineWidth = 2;
+          for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+            ctx.beginPath();
+            ctx.moveTo(tl.x + sx * o, tl.y + sy * o - sy * tk); ctx.lineTo(tl.x + sx * o, tl.y + sy * o); ctx.lineTo(tl.x + sx * o - sx * tk, tl.y + sy * o);
+            ctx.stroke();
+          }
+        }
       }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
+  }, [drawTiles, drawGround, reduce]);
+
+  // --- pointer handling: dig only while pressed, with stroke interpolation so fast drags don't skip ---
+  const ensureAudio = useCallback(() => {
+    if (reduce || audio.current) return;
+    try {
+      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      audio.current = new AC();
+    } catch { /* no audio — fine */ }
   }, [reduce]);
 
+  const localXY = (e: React.PointerEvent) => {
+    const rect = tilesRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const onDown = useCallback((e: React.PointerEvent) => {
+    ensureAudio();
+    coarse.current = e.pointerType === 'touch';
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const { x, y } = localXY(e);
+    tool.current.x = x; tool.current.y = y; tool.current.on = true; tool.current.down = true;
+    lastPt.current = { x, y };
+    dig(x, y);
+  }, [dig, ensureAudio]);
+  const onMove = useCallback((e: React.PointerEvent) => {
+    const { x, y } = localXY(e);
+    tool.current.x = x; tool.current.y = y; tool.current.on = true;
+    if (!tool.current.down) return;
+    const last = lastPt.current;
+    if (last) {
+      const dx = x - last.x, dy = y - last.y, dist = Math.hypot(dx, dy);
+      const step = grid.current.T * STEP_F;
+      const n = clamp(Math.ceil(dist / step), 1, 24);
+      for (let i = 1; i <= n; i++) dig(last.x + dx * (i / n), last.y + dy * (i / n));
+    } else dig(x, y);
+    lastPt.current = { x, y };
+  }, [dig]);
+  const onUp = useCallback(() => { tool.current.down = false; lastPt.current = null; }, []);
+  const onLeave = useCallback(() => { tool.current.on = false; tool.current.down = false; lastPt.current = null; }, []);
+
   const collect = useCallback((i: number) => {
-    setRelics((prev) => {
-      const r = prev[i];
-      if (!r || r.found || !r.visible) return prev;
-      return prev.map((x, j) => (j === i ? { ...x, found: true } : x));
-    });
-  }, []);
+    const r = relicsRef.current[i];
+    if (!r || r.found || !r.visible) return;
+    const cv = grid.current;
+    setRelics((prev) => prev.map((x, j) => (j === i ? { ...x, found: true } : x)));
+    collectFx(r.x * cv.W, r.y * cv.H); // distinct from reveal; fired outside the updater
+  }, [collectFx]);
 
-  // keyboard path: excavate (reveal + collect) a relic without the pointer scrape
+  // keyboard / assistive path: excavate (reveal + collect) a relic without the pointer scrape
   const excavate = useCallback((i: number) => {
-    setRelics((prev) => (prev[i] && !prev[i].found ? prev.map((x, j) => (j === i ? { ...x, visible: true, found: true } : x)) : prev));
-  }, []);
+    const r = relicsRef.current[i];
+    if (!r || r.found) return;
+    revealing.current.add(i);
+    setRelics((prev) => prev.map((x, j) => (j === i ? { ...x, visible: true, found: true } : x)));
+    const cv = grid.current;
+    collectFx(r.x * cv.W, r.y * cv.H);
+  }, [collectFx]);
 
-  // move focus into the gate when it opens (cube is inert behind it)
   useEffect(() => { skipRef.current?.focus(); }, []);
+
+  // close the audio context on unmount
+  useEffect(() => () => { audio.current?.close(); audio.current = null; }, []);
 
   // once every relic is recovered, run the boot sequence then hand off
   useEffect(() => {
@@ -203,15 +458,12 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   }, [allFound, onUnlock, reduce]);
 
   return (
-    <div className={`gate${gone ? ' gone' : ''}`}>
+    <div ref={rootRef} className={`gate${gone ? ' gone' : ''}`}>
       <button ref={skipRef} className="gate-skip" onClick={() => { setGone(true); setTimeout(onUnlock, reduce ? 50 : 300); }}>{t.skip}</button>
       <div className="gate-hint">{t.gate_hint} · {site.name} · {site.code}<b>{t.gate_hint2}</b></div>
-      {/* keyboard-accessible excavation: hidden until focused, then operable by Enter/Space */}
-      <div className="gate-kbd">
-        {relics.map((r, i) => !r.found && (
-          <button key={i} onClick={() => excavate(i)}>{t.kbd_relic} {i + 1} / {relics.length}</button>
-        ))}
-      </div>
+
+      <canvas ref={groundRef} className="gate-ground" aria-hidden="true" />
+
       {relics.map((r, i) => (
         <button
           key={i}
@@ -220,6 +472,7 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
           style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%` }}
           onClick={() => collect(i)}
           disabled={!r.visible || r.found}
+          aria-hidden={r.visible ? undefined : true}
           aria-label={`${r.found ? t.gate_done : r.visible ? t.gate_exposed : t.gate_buried} ${i + 1}`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -227,19 +480,28 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
           <span className="relic-state">{r.found ? t.gate_done : r.visible ? t.gate_exposed : t.gate_buried}</span>
         </button>
       ))}
+
       <canvas
-        ref={soilRef}
-        className="soil"
-        onMouseMove={(e) => paint(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
-        onMouseLeave={() => { brush.current.on = false; }}
-        onTouchMove={(e) => { const rect = soilRef.current!.getBoundingClientRect(); const tch = e.touches[0]; paint(tch.clientX - rect.left, tch.clientY - rect.top); }}
-        onTouchEnd={() => { brush.current.on = false; }}
-        onClick={(e) => relics.forEach((r, i) => {
-          if (r.found || !r.visible) return;
-          if (Math.hypot(e.nativeEvent.offsetX - r.x * window.innerWidth, e.nativeEvent.offsetY - r.y * window.innerHeight) < 56) collect(i);
-        })}
+        ref={tilesRef}
+        className="gate-tiles"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onLeave}
+        onPointerLeave={onLeave}
       />
       <canvas ref={fxRef} className="fx" aria-hidden="true" />
+
+      {/* assistive / keyboard excavation — secondary control, not the primary way to play */}
+      {!allFound && (
+        <div className="gate-kbd" role="group" aria-label={t.kbd_relic}>
+          <span className="klbl">{t.kbd_assist}</span>
+          {relics.map((r, i) => !r.found && (
+            <button key={i} onClick={() => excavate(i)} aria-label={`${t.kbd_relic} ${i + 1} / ${relics.length}`}>{i + 1}</button>
+          ))}
+        </div>
+      )}
+
       <div className="gate-hud">
         <div className="lbl">{t.recovered}</div>
         <div className="relics-row">{relics.map((_, i) => <i key={i} className={i < collected ? 'on' : ''} />)}</div>

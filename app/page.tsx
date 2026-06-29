@@ -8,6 +8,7 @@ import { Tuner } from './components/Tuner';
 import { AmbientField } from './components/AmbientField';
 import { ReadingSlip } from './components/ReadingSlip';
 import { DIG_SITES, randomDigSite, type DigSite } from './constants/sites';
+import { demoLog } from './constants/demo';
 
 const SESSION_KEY = 'anxi_gate_unlocked';
 const ERAS: Era[] = [Era.GOLDEN_AGE, Era.TURNING_POINT, Era.WASTELAND, Era.GHOST_SIGNAL];
@@ -42,12 +43,23 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [lang, setLang] = useState<Language>('zh');
   const [site, setSite] = useState<DigSite>(DIG_SITES[0]);
+  const [demo, setDemo] = useState(false);
+  const [errorDev, setErrorDev] = useState<string | null>(null);
 
   useEffect(() => {
     setSite(randomDigSite());
     setLang((navigator.language || 'zh').startsWith('zh') ? 'zh' : 'en');
-    if (sessionStorage.getItem(SESSION_KEY)) setBooted(true);
+    // ?demo[=year|keyword]: offline seed mode — skips the gate and (with a value) opens that
+    // transmission immediately, so design/QA can reach the reading view without a Gemini key.
+    const demoVal = new URLSearchParams(window.location.search).get('demo');
+    const isDemo = demoVal !== null;
+    setDemo(isDemo);
+    if (isDemo || sessionStorage.getItem(SESSION_KEY)) setBooted(true);
     else setShowGate(true);
+    if (isDemo && demoVal && !/^(1|true)$/i.test(demoVal)) {
+      const log = demoLog(demoVal, 744);
+      setLogs([log]); setActive(log); setYear(log.year);
+    }
     setMounted(true);
   }, []);
 
@@ -78,6 +90,21 @@ export default function Home() {
     if (loading) return;
     setLoading(true);
     setError(null);
+    setErrorDev(null);
+
+    // offline seed mode (?demo=1): synthesize a transmission so the reading view is
+    // reachable without a Gemini key or any network call — for design / QA.
+    if (demo) {
+      const log = demoLog(q, year);
+      await new Promise((r) => setTimeout(r, 280));
+      setLogs((prev) => [...prev.filter((l) => l.id !== log.id), log]);
+      setActive(log);
+      setYear(log.year);
+      setInput('');
+      setLoading(false);
+      return;
+    }
+
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 60000);
     try {
@@ -87,7 +114,14 @@ export default function Home() {
         body: JSON.stringify({ query: q }),
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error('generation failed');
+      if (!res.ok) {
+        // the API attaches a `dev` diagnostic outside production (e.g. missing GEMINI_API_KEY)
+        let dev = '';
+        try { dev = (await res.json())?.dev ?? ''; } catch {}
+        const err = new Error('generation failed') as Error & { dev?: string };
+        err.dev = dev;
+        throw err;
+      }
       const log: LogData = await res.json();
       setLogs((prev) => [...prev.filter((l) => l.id !== log.id), log]);
       setActive(log);
@@ -96,6 +130,8 @@ export default function Home() {
     } catch (e) {
       console.error(e);
       setError(t.err);
+      const dev = (e as { dev?: string })?.dev;
+      if (dev) setErrorDev(dev);
     } finally {
       clearTimeout(to);
       setLoading(false);
@@ -165,14 +201,14 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="h-sub">LOST&nbsp;FREQUENCY</div>
-                <p className="intro">{t.intro}</p>
-                <div className="cue"><span className="blink">▸</span> {t.cue}</div>
+                <div className="cmd"><b>{t.cmd1}</b><span className="sep">▸</span><b>{t.cmd2}</b><span className="sep">▸</span><b>{t.cmd3}</b></div>
+                <div className="brief"><span className="tag">{t.brief_tag}</span> {t.brief}</div>
               </div>
               <div className="preview">
                 <div className="pk"><i className="led" /> {t.caught}</div>
                 <div className="py">{year} AD <small>· {site.name} · {site.code}</small></div>
                 <div className="pf">{t.eras[era]} · {t.states[era]}</div>
-                <div className="pa">[ {t.dig} ⏎ / {t.scrub} ]</div>
+                <div className="pa">[ {t.lock_action} ]</div>
               </div>
             </div>
 
@@ -183,7 +219,16 @@ export default function Home() {
               <div className="cell"><div className="k">SIG</div><div className="v accent"><span className="sigbars">{[0, 1, 2].map((i) => <i key={i} style={{ height: (i + 1) * 4 + 2, opacity: i < sigN(mem) ? 1 : 0.25 }} />)}</span>{sigLabel(mem)}</div></div>
             </div>
 
-            <Tuner year={year} onScrub={setYear} />
+            <Tuner
+              year={year}
+              onScrub={setYear}
+              logs={logs}
+              activeId={null}
+              onPick={(id) => { const l = logs.find((x) => x.id === id); if (l) { setActive(l); setYear(l.year); } }}
+              eraNames={t.eras}
+              depthText={`${t.depth} ${site.depth}`}
+              label={t.strata}
+            />
 
             <div className="dig">
               <div className="hint">{t.dig_hint}</div>
@@ -191,7 +236,7 @@ export default function Home() {
               <div className="field-in">
                 <input
                   value={input}
-                  onChange={(e) => { setInput(e.target.value); if (error) setError(null); }}
+                  onChange={(e) => { setInput(e.target.value); if (error) { setError(null); setErrorDev(null); } }}
                   onKeyDown={(e) => e.key === 'Enter' && dig()}
                   placeholder={t.input_placeholder}
                   aria-label={t.input_placeholder}
@@ -200,9 +245,12 @@ export default function Home() {
                 <span className="caret">{loading ? '◜◝◞◟' : t.ready}</span>
               </div>
               <button className="navbtn" onClick={() => setYear((y) => Math.min(808, y + 1))} aria-label="+1">▸</button>
-              <button className="dig-btn" onClick={() => dig()} disabled={loading}>⛏ <span className="t">{t.dig_signal}</span></button>
+              <button className="dig-btn" onClick={() => dig()} disabled={loading}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="px" src="/sprites/ui_pickaxe.png" alt="" /> <span className="t">{t.dig_signal}</span>
+              </button>
             </div>
-            {error && <div className="drill-err" role="alert">{error}</div>}
+            {error && <div className="drill-err" role="alert">{error}{errorDev && <span className="dev">{errorDev}</span>}</div>}
           </>
         )}
 
@@ -228,6 +276,24 @@ export default function Home() {
           <span>发掘点 {site.code} · {site.mark} · <button className="lnk" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setSite(randomDigSite()); setBooted(false); setShowGate(true); setActive(null); setLogs([]); }}>{t.replay}</button></span>
         </div>
       </div>
+
+      {/* mobile-only sticky recover bar — keeps the dig action in the thumb zone */}
+      {booted && !active && (
+        <div className="mfab">
+          <input
+            value={input}
+            onChange={(e) => { setInput(e.target.value); if (error) { setError(null); setErrorDev(null); } }}
+            onKeyDown={(e) => e.key === 'Enter' && dig()}
+            placeholder={t.input_placeholder}
+            aria-label={t.input_placeholder}
+            disabled={loading}
+          />
+          <button onClick={() => dig()} disabled={loading} aria-label={t.dig_signal}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="px" src="/sprites/ui_pickaxe.png" alt="" /> {t.dig}
+          </button>
+        </div>
+      )}
 
       {mounted && showGate && <Gate onUnlock={unlock} lang={lang} site={site} />}
       <div className="scan" aria-hidden="true" />
