@@ -52,7 +52,7 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   const skipRef = useRef<HTMLButtonElement>(null);
   const [relics, setRelics] = useState<Relic[]>(makeRelics);
   const [gone, setGone] = useState(false);
-  const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const [reduce, setReduce] = useState(false);
   const collected = relics.filter((r) => r.found).length;
   const allFound = relics.length > 0 && collected === relics.length;
 
@@ -74,8 +74,18 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   const audio = useRef<AudioContext | null>(null);
   const lastTick = useRef(0);
   const lastThunk = useRef(0);
+  const unlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { relicsRef.current = relics; groundDirty.current = true; }, [relics]);
+
+  // read reduced-motion in an effect (not during render) so SSR/first paint stay deterministic; track changes
+  useEffect(() => {
+    const m = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReduce(m.matches);
+    const h = () => setReduce(m.matches);
+    m.addEventListener('change', h);
+    return () => m.removeEventListener('change', h);
+  }, []);
 
   // --- tiny WebAudio juice (no assets); started on first dig gesture, off under reduced-motion ---
   const blip = useCallback((freq: number, dur: number, type: OscillatorType, gain: number, slideTo?: number) => {
@@ -255,6 +265,7 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   // a dig stroke at (cx,cy): center-weighted HP knockoff (2 inner / 1 outer), throttled per tile
   const dig = useCallback((cx: number, cy: number) => {
     const { T, cols, rows } = grid.current;
+    if (!cols || !rows || hp.current.length !== cols * rows) return; // grid not laid out yet
     const rad = T * (coarse.current ? 1.55 : 1.3);
     const inner = rad * 0.65;
     const now = performance.now();
@@ -420,7 +431,7 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
     } else dig(x, y);
     lastPt.current = { x, y };
   }, [dig]);
-  const onUp = useCallback(() => { tool.current.down = false; lastPt.current = null; }, []);
+  const onUp = useCallback(() => { tool.current.down = false; lastPt.current = null; if (coarse.current) tool.current.on = false; }, []);
   const onLeave = useCallback(() => { tool.current.on = false; tool.current.down = false; lastPt.current = null; }, []);
 
   const collect = useCallback((i: number) => {
@@ -444,7 +455,7 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   useEffect(() => { skipRef.current?.focus(); }, []);
 
   // close the audio context on unmount
-  useEffect(() => () => { audio.current?.close(); audio.current = null; }, []);
+  useEffect(() => () => { audio.current?.close(); audio.current = null; if (unlockTimer.current) clearTimeout(unlockTimer.current); }, []);
 
   // once every relic is recovered, run the boot sequence then hand off
   useEffect(() => {
@@ -459,7 +470,7 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
 
   return (
     <div ref={rootRef} className={`gate${gone ? ' gone' : ''}`}>
-      <button ref={skipRef} className="gate-skip" onClick={() => { setGone(true); setTimeout(onUnlock, reduce ? 50 : 300); }}>{t.skip}</button>
+      <button ref={skipRef} className="gate-skip" onClick={() => { if (gone) return; setGone(true); unlockTimer.current = setTimeout(onUnlock, reduce ? 50 : 300); }}>{t.skip}</button>
       <div className="gate-hint">{t.gate_hint} · {site.name} · {site.code}<b>{t.gate_hint2}</b></div>
 
       <canvas ref={groundRef} className="gate-ground" aria-hidden="true" />

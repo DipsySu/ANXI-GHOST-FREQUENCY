@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { LogData, Era } from './types';
 import { translations, Language } from './constants/translations';
 import { Gate } from './components/Gate';
@@ -11,6 +11,11 @@ import { DIG_SITES, randomDigSite, type DigSite } from './constants/sites';
 import { demoLog } from './constants/demo';
 
 const SESSION_KEY = 'anxi_gate_unlocked';
+// session persistence is best-effort: private mode / blocked storage throws SecurityError,
+// which must never stop the gate/unlock UI from progressing.
+const safeGet = (k: string): string | null => { try { return sessionStorage.getItem(k); } catch { return null; } };
+const safeSet = (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } };
+const safeRemove = (k: string) => { try { sessionStorage.removeItem(k); } catch { /* ignore */ } };
 const ERAS: Era[] = [Era.GOLDEN_AGE, Era.TURNING_POINT, Era.WASTELAND, Era.GHOST_SIGNAL];
 const MEM: Record<Era, number> = { [Era.GOLDEN_AGE]: 96, [Era.TURNING_POINT]: 72, [Era.WASTELAND]: 38, [Era.GHOST_SIGNAL]: 13 };
 const ACCENT: Record<Era, [number, number, number]> = {
@@ -45,6 +50,8 @@ export default function Home() {
   const [site, setSite] = useState<DigSite>(DIG_SITES[0]);
   const [demo, setDemo] = useState(false);
   const [errorDev, setErrorDev] = useState<string | null>(null);
+  const digSeq = useRef(0);
+  const digAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setSite(randomDigSite());
@@ -54,7 +61,7 @@ export default function Home() {
     const demoVal = new URLSearchParams(window.location.search).get('demo');
     const isDemo = demoVal !== null;
     setDemo(isDemo);
-    if (isDemo || sessionStorage.getItem(SESSION_KEY)) setBooted(true);
+    if (isDemo || safeGet(SESSION_KEY)) setBooted(true);
     else setShowGate(true);
     if (isDemo && demoVal && !/^(1|true)$/i.test(demoVal)) {
       const log = demoLog(demoVal, 744);
@@ -77,17 +84,22 @@ export default function Home() {
   const lowmem = mem <= 25;
   const sigLabel = (m: number) => (m >= 70 ? t.sig_good : m >= 35 ? t.sig_weak : t.sig_damaged);
 
+  // invalidate any in-flight dig so a late response can't write stale state back over a reset
+  const cancelDig = () => { digSeq.current++; digAbort.current?.abort(); digAbort.current = null; setLoading(false); };
+
   const unlock = () => {
-    sessionStorage.setItem(SESSION_KEY, '1');
+    cancelDig();
     setBooted(true);
     setShowGate(false);
     setYear(744);
     setActive(null);
+    safeSet(SESSION_KEY, '1'); // best-effort; never blocks the unlock
   };
 
   const dig = async (override?: string) => {
     const q = (override ?? input).trim() || String(year);
     if (loading) return;
+    const seq = ++digSeq.current; // generation guard: a reset/replay bumps this to disown this run
     setLoading(true);
     setError(null);
     setErrorDev(null);
@@ -95,8 +107,9 @@ export default function Home() {
     // offline seed mode (?demo=1): synthesize a transmission so the reading view is
     // reachable without a Gemini key or any network call — for design / QA.
     if (demo) {
-      const log = demoLog(q, year);
       await new Promise((r) => setTimeout(r, 280));
+      if (digSeq.current !== seq) return; // superseded by replay/unlock while we waited
+      const log = demoLog(q, year);
       setLogs((prev) => [...prev.filter((l) => l.id !== log.id), log]);
       setActive(log);
       setYear(log.year);
@@ -106,6 +119,7 @@ export default function Home() {
     }
 
     const ctrl = new AbortController();
+    digAbort.current = ctrl;
     const to = setTimeout(() => ctrl.abort(), 60000);
     try {
       const res = await fetch('/api/generate', {
@@ -114,6 +128,7 @@ export default function Home() {
         body: JSON.stringify({ query: q }),
         signal: ctrl.signal,
       });
+      if (digSeq.current !== seq) return; // superseded — don't write stale state
       if (!res.ok) {
         // the API attaches a `dev` diagnostic outside production (e.g. missing GEMINI_API_KEY)
         let dev = '';
@@ -123,18 +138,20 @@ export default function Home() {
         throw err;
       }
       const log: LogData = await res.json();
+      if (digSeq.current !== seq) return; // superseded
       setLogs((prev) => [...prev.filter((l) => l.id !== log.id), log]);
       setActive(log);
       setYear(log.year);
       setInput('');
     } catch (e) {
+      if (digSeq.current !== seq) return; // superseded (includes abort from cancelDig)
       console.error(e);
       setError(t.err);
       const dev = (e as { dev?: string })?.dev;
       if (dev) setErrorDev(dev);
     } finally {
       clearTimeout(to);
-      setLoading(false);
+      if (digSeq.current === seq) { setLoading(false); digAbort.current = null; }
     }
   };
 
@@ -273,7 +290,7 @@ export default function Home() {
         {/* device footer */}
         <div className="footline">
           <span>黑立方残片 · LOST-FREQ NODE {'//'} {t.net} {t.net_on}</span>
-          <span>发掘点 {site.code} · {site.mark} · <button className="lnk" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setSite(randomDigSite()); setBooted(false); setShowGate(true); setActive(null); setLogs([]); }}>{t.replay}</button></span>
+          <span>发掘点 {site.code} · {site.mark} · <button className="lnk" onClick={() => { cancelDig(); safeRemove(SESSION_KEY); setSite(randomDigSite()); setBooted(false); setShowGate(true); setActive(null); setLogs([]); }}>{t.replay}</button></span>
         </div>
       </div>
 

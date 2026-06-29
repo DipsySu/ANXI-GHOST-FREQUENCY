@@ -40,6 +40,7 @@ export function Tuner({
     const el = trackRef.current;
     if (!el) return year;
     const r = el.getBoundingClientRect();
+    if (r.width <= 0) return year;
     const p = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
     return Math.round(MIN + p * (MAX - MIN));
   };
@@ -82,8 +83,15 @@ export function Tuner({
         aria-valuetext={`${year} AD`}
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowLeft') { e.preventDefault(); const y = Math.max(MIN, year - 1); onScrub(y); onCommit?.(y); }
-          else if (e.key === 'ArrowRight') { e.preventDefault(); const y = Math.min(MAX, year + 1); onScrub(y); onCommit?.(y); }
+          let y = year;
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') y = Math.max(MIN, year - 1);
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') y = Math.min(MAX, year + 1);
+          else if (e.key === 'PageDown') y = Math.max(MIN, year - 10);
+          else if (e.key === 'PageUp') y = Math.min(MAX, year + 10);
+          else if (e.key === 'Home') y = MIN;
+          else if (e.key === 'End') y = MAX;
+          else return;
+          e.preventDefault(); onScrub(y); onCommit?.(y);
         }}
       >
         {ZONES.map((z) => (
@@ -93,18 +101,19 @@ export function Tuner({
           </div>
         ))}
 
+        {/* recovered-log markers — decorative (aria-hidden); keyboard/AT navigate via the archive chips.
+            kept mouse-clickable as a convenience, and a stopPropagation so a click doesn't scrub the slider */}
         {logs.map((l) => (
-          <button
+          <span
             key={l.id}
-            className="find"
-            aria-current={activeId === l.id}
-            aria-label={`已回收 ${l.year} AD`}
+            className={`find${activeId === l.id ? ' on' : ''}`}
+            aria-hidden="true"
             style={{ left: `${pct(l.year)}%`, ['--ft']: `rgb(${eraRGB(l.era)})` } as CSSProperties}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => onPick?.(l.id)}
           >
             <i /><b>{l.year}</b>
-          </button>
+          </span>
         ))}
 
         <div className="play" style={{ left: `${pct(year)}%` }}>
