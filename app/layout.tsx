@@ -9,9 +9,9 @@ const zpix = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "安西 · Ghost Frequency",
+  title: "安西 · 失落频率 Lost Frequency",
   description:
-    "8-bit cyber-archaeology terminal — signal from the Parallel Tang Dynasty Anxi Protectorate, 640–808 AD",
+    "8-bit cyber-archaeology field terminal — lost signals from the Parallel Tang Dynasty Anxi Protectorate, 640–808 AD",
   icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
 };
 

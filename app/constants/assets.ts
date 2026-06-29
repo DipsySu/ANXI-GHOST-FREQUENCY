@@ -35,4 +35,30 @@ export const RELICS = {
   jade: '/sprites/relic_jade.png',
 };
 
+/**
+ * Expandable relic pool for the excavation gate. Each session the gate draws a random
+ * subset (and scatters them at random sites), so no two digs feel the same.
+ * To add variety: generate a new pixel sprite (PixelLab, or any 8-bit art) into
+ * /public/sprites and append its path here — it joins the rotation automatically.
+ */
+export const RELIC_POOL: string[] = [
+  RELICS.coin,
+  RELICS.chip,
+  RELICS.jade,
+  '/sprites/relic_crystal.png',
+  '/sprites/relic_gear.png',
+  '/sprites/relic_flask.png',
+  '/sprites/relic_blade.png',
+  '/sprites/relic_cable.png',
+  '/sprites/relic_debris.png',
+  '/sprites/relic_scroll.png',
+  '/sprites/relic_seal_broken.png',
+  '/sprites/relic_tower_core.png',
+  '/sprites/relic_silk_map.png',
+  '/sprites/relic_key.png',
+  '/sprites/relic_battery.png',
+  '/sprites/relic_lens.png',
+  '/sprites/relic_bell.png',
+];
+
 export const SEAL = '/sprites/ui_seal.png';

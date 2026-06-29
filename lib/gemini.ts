@@ -1,5 +1,7 @@
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
+import { lookup as dnsLookup } from 'dns';
+import { Agent as HttpsAgent } from 'https';
 import fetch from 'node-fetch';
 import { GoogleGenAI } from '@google/genai';
 
@@ -72,6 +74,28 @@ const API_KEY = process.env.GEMINI_API_KEY || '';
 const BASE_URL = process.env.BASE_URL;
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash-exp';
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash-exp';
+const GEMINI_API_HOST = 'generativelanguage.googleapis.com';
+const GEMINI_API_HOST_IP = process.env.GEMINI_API_HOST_IP?.trim();
+
+const geminiFetchAgent = GEMINI_API_HOST_IP
+  ? new HttpsAgent({
+      lookup(hostname, options, callback) {
+        if (hostname === GEMINI_API_HOST) {
+          const family = GEMINI_API_HOST_IP.includes(':') ? 6 : 4;
+
+          if (options.all) {
+            callback(null, [{ address: GEMINI_API_HOST_IP, family }], family);
+            return;
+          }
+
+          callback(null, GEMINI_API_HOST_IP, family);
+          return;
+        }
+
+        dnsLookup(hostname, options, callback);
+      },
+    })
+  : undefined;
 
 // Control which API method to use
 // - If BASE_URL is set, force use fetch (for proxy/relay)
@@ -154,6 +178,7 @@ async function callViaFetch(
       'Content-Type': 'application/json',
       'x-goog-api-key': API_KEY,
     },
+    agent: geminiFetchAgent,
     body: JSON.stringify(body),
   });
 

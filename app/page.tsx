@@ -7,6 +7,7 @@ import { Gate } from './components/Gate';
 import { Tuner } from './components/Tuner';
 import { AmbientField } from './components/AmbientField';
 import { ReadingSlip } from './components/ReadingSlip';
+import { DIG_SITES, randomDigSite, type DigSite } from './constants/sites';
 
 const SESSION_KEY = 'anxi_gate_unlocked';
 const ERAS: Era[] = [Era.GOLDEN_AGE, Era.TURNING_POINT, Era.WASTELAND, Era.GHOST_SIGNAL];
@@ -40,8 +41,10 @@ export default function Home() {
   const [showGate, setShowGate] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [lang, setLang] = useState<Language>('zh');
+  const [site, setSite] = useState<DigSite>(DIG_SITES[0]);
 
   useEffect(() => {
+    setSite(randomDigSite());
     setLang((navigator.language || 'zh').startsWith('zh') ? 'zh' : 'en');
     if (sessionStorage.getItem(SESSION_KEY)) setBooted(true);
     else setShowGate(true);
@@ -109,7 +112,7 @@ export default function Home() {
           <div className="bar-l">
             <div className="seal">安</div>
             <div className="brand">
-              <div className="mark">安西 · 鬼频</div>
+              <div className="mark">安西 · 失落频率</div>
               <div className="sub">{t.tagline}</div>
             </div>
           </div>
@@ -129,7 +132,7 @@ export default function Home() {
           /* ===================== reading view ===================== */
           <>
             <div className="strip">
-              <span className="sk">频率刻度 {'//'} POS</span>
+              <span className="sk">地下频带 {'//'} FIELD POS</span>
               <span className="mini">
                 <span className="zones">{ERAS.map((e) => <i key={e} style={{ flex: 1, background: `rgba(${ACCENT[e].join(',')},.4)` }} />)}</span>
                 <span className="head" style={{ left: `${((active.year - 640) / 168) * 100}%` }} />
@@ -161,13 +164,13 @@ export default function Home() {
                     <span className="g b" aria-hidden="true">安西</span>
                   </span>
                 </div>
-                <div className="h-sub">GHOST&nbsp;FREQUENCY</div>
+                <div className="h-sub">LOST&nbsp;FREQUENCY</div>
                 <p className="intro">{t.intro}</p>
                 <div className="cue"><span className="blink">▸</span> {t.cue}</div>
               </div>
               <div className="preview">
                 <div className="pk"><i className="led" /> {t.caught}</div>
-                <div className="py">{year} AD <small>· 龟兹 · SECTOR-04</small></div>
+                <div className="py">{year} AD <small>· {site.name} · {site.code}</small></div>
                 <div className="pf">{t.eras[era]} · {t.states[era]}</div>
                 <div className="pa">[ {t.dig} ⏎ / {t.scrub} ]</div>
               </div>
@@ -176,7 +179,7 @@ export default function Home() {
             <div className="readout">
               <div className="cell"><div className="k">FREQ</div><div className="v accent">{freqOf(year)} <small>MHz</small></div></div>
               <div className="cell"><div className="k">YEAR</div><div className="v">{year} <small>AD · {t.states[era]}</small></div></div>
-              <div className="cell"><div className="k">POS</div><div className="v">龟兹 · SECTOR-04</div></div>
+              <div className="cell"><div className="k">FIELD</div><div className="v">{site.name} · {site.depth}</div></div>
               <div className="cell"><div className="k">SIG</div><div className="v accent"><span className="sigbars">{[0, 1, 2].map((i) => <i key={i} style={{ height: (i + 1) * 4 + 2, opacity: i < sigN(mem) ? 1 : 0.25 }} />)}</span>{sigLabel(mem)}</div></div>
             </div>
 
@@ -221,12 +224,12 @@ export default function Home() {
 
         {/* device footer */}
         <div className="footline">
-          <span>黑立方终端 · HEILIFANG {'//'} {t.net} {t.net_on}端</span>
-          <span>型号 开元-I型 · 龟兹 SECTOR-04 · <button className="lnk" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setBooted(false); setShowGate(true); setActive(null); setLogs([]); }}>{t.replay}</button></span>
+          <span>黑立方残片 · LOST-FREQ NODE {'//'} {t.net} {t.net_on}</span>
+          <span>发掘点 {site.code} · {site.mark} · <button className="lnk" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setSite(randomDigSite()); setBooted(false); setShowGate(true); setActive(null); setLogs([]); }}>{t.replay}</button></span>
         </div>
       </div>
 
-      {mounted && showGate && <Gate onUnlock={unlock} lang={lang} />}
+      {mounted && showGate && <Gate onUnlock={unlock} lang={lang} site={site} />}
       <div className="scan" aria-hidden="true" />
     </div>
   );
