@@ -8,18 +8,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const { query } = body;
 
-    if (!query) {
-      return NextResponse.json({ error: 'Query is required' }, { status: 400 });
+    if (typeof query !== 'string' || !query.trim() || query.length > 200) {
+      return NextResponse.json({ error: 'Query must be a non-empty string (max 200 chars)' }, { status: 400 });
     }
 
     // Generate log content
-    const logData = await generateLog(query);
+    const logData = await generateLog(query.trim());
 
-    // Debug: log the image prompt
-    console.log('=== IMAGE PROMPT ===');
-    console.log(logData.imagePrompt);
-    console.log('====================');
-    console.log(`Image generation: ${ENABLE_IMAGE_GENERATION ? 'ENABLED' : 'DISABLED'}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[generate] image prompt:', logData.imagePrompt, '| imageGen:', ENABLE_IMAGE_GENERATION ? 'on' : 'off');
+    }
 
     // Generate image URL only if enabled via env var
     let imageUrl = '';

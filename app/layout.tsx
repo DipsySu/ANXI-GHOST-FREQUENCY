@@ -1,41 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
-import { Gatekeeper } from "./components/loading/Gatekeeper";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const zpix = localFont({
+  src: "./fonts/zpix.woff2",
+  variable: "--font-zpix",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Lost Anxi: Ghost Frequency",
-  description: "Signal from 790 AD - A Parallel Tang Dynasty Terminal",
-  icons: {
-    icon: '/favicon.svg',
-    apple: '/favicon.svg',
-  },
+  title: "安西 · Ghost Frequency",
+  description:
+    "8-bit cyber-archaeology terminal — signal from the Parallel Tang Dynasty Anxi Protectorate, 640–808 AD",
+  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <Gatekeeper>
-          {children}
-        </Gatekeeper>
-      </body>
+    <html lang="zh">
+      <body className={zpix.variable}>{children}</body>
     </html>
   );
 }

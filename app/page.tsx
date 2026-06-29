@@ -1,219 +1,233 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { LogData, Era } from './types';
-import { LogEntry } from './components/LogEntry';
-import { CRTOverlay } from './components/CRTOverlay';
-import { LoadingSpinner } from './components/LoadingSpinner';
-import { Search, RotateCw, Terminal, Languages, Database } from 'lucide-react';
 import { translations, Language } from './constants/translations';
+import { Gate } from './components/Gate';
+import { Tuner } from './components/Tuner';
+import { AmbientField } from './components/AmbientField';
+import { ReadingSlip } from './components/ReadingSlip';
 
-// Background styles
-const EraBackgrounds: Record<Era, string> = {
-  [Era.GOLDEN_AGE]: 'bg-gradient-to-br from-slate-900 via-cyan-950 to-slate-900',
-  [Era.TURNING_POINT]: 'bg-gradient-to-br from-neutral-900 via-red-950 to-neutral-900',
-  [Era.WASTELAND]: 'bg-[#1a1510]',
-  [Era.GHOST_SIGNAL]: 'bg-black',
+const SESSION_KEY = 'anxi_gate_unlocked';
+const ERAS: Era[] = [Era.GOLDEN_AGE, Era.TURNING_POINT, Era.WASTELAND, Era.GHOST_SIGNAL];
+const MEM: Record<Era, number> = { [Era.GOLDEN_AGE]: 96, [Era.TURNING_POINT]: 72, [Era.WASTELAND]: 38, [Era.GHOST_SIGNAL]: 13 };
+const ACCENT: Record<Era, [number, number, number]> = {
+  [Era.GOLDEN_AGE]: [58, 208, 192], [Era.TURNING_POINT]: [255, 106, 94], [Era.WASTELAND]: [217, 138, 55], [Era.GHOST_SIGNAL]: [53, 232, 154],
 };
+const CORRUPT: Record<Era, number> = { [Era.GOLDEN_AGE]: 0, [Era.TURNING_POINT]: 0.28, [Era.WASTELAND]: 0.6, [Era.GHOST_SIGNAL]: 1 };
+const TAB: Record<Era, string> = { [Era.GOLDEN_AGE]: '#3ad0c0', [Era.TURNING_POINT]: '#ff6a5e', [Era.WASTELAND]: '#d98a37', [Era.GHOST_SIGNAL]: '#35e89a' };
+const ERA_START: Record<Era, number> = { [Era.GOLDEN_AGE]: 744, [Era.TURNING_POINT]: 756, [Era.WASTELAND]: 775, [Era.GHOST_SIGNAL]: 798 };
+const ERA_RANGE: Record<Era, string> = { [Era.GOLDEN_AGE]: '640–750', [Era.TURNING_POINT]: '751–760', [Era.WASTELAND]: '761–790', [Era.GHOST_SIGNAL]: '791–808' };
+
+function eraOf(year: number): Era {
+  if (year <= 750) return Era.GOLDEN_AGE;
+  if (year <= 760) return Era.TURNING_POINT;
+  if (year <= 790) return Era.WASTELAND;
+  return Era.GHOST_SIGNAL;
+}
+const freqOf = (year: number) => ('00' + (year / 10).toFixed(2)).slice(-6);
+const sigN = (m: number) => (m >= 70 ? 3 : m >= 35 ? 2 : 1);
+const tabVar = (c: string) => ({ ['--tab']: c } as CSSProperties);
 
 export default function Home() {
-  const [query, setQuery] = useState('');
   const [logs, setLogs] = useState<LogData[]>([]);
+  const [active, setActive] = useState<LogData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [currentEra, setCurrentEra] = useState<Era>(Era.GOLDEN_AGE);
-
-  // Auto-detect language (client-side only to avoid hydration mismatch)
-  const [lang, setLang] = useState<Language>('en');
+  const [error, setError] = useState<string | null>(null);
+  const [input, setInput] = useState('');
+  const [year, setYear] = useState(744);
+  const [booted, setBooted] = useState(false);
+  const [showGate, setShowGate] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [lang, setLang] = useState<Language>('zh');
 
-  const endOfLogsRef = useRef<HTMLDivElement>(null);
-
-  // Detect language on mount
   useEffect(() => {
-    const browserLang = navigator.language || navigator.languages[0] || 'en';
-    setLang(browserLang.startsWith('zh') ? 'zh' : 'en');
+    setLang((navigator.language || 'zh').startsWith('zh') ? 'zh' : 'en');
+    if (sessionStorage.getItem(SESSION_KEY)) setBooted(true);
+    else setShowGate(true);
     setMounted(true);
   }, []);
 
-  const t = translations[lang];
-
-  // Auto-scroll to new logs
+  // lock page scroll while the excavation gate is up
   useEffect(() => {
-    if (mounted) {
-      endOfLogsRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs, mounted]);
+    if (!showGate) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [showGate]);
 
-  const toggleLanguage = () => {
-    setLang((prev) => (prev === 'en' ? 'zh' : 'en'));
+  const t = translations[lang];
+  const era = active ? active.era : eraOf(year);
+  const mem = active ? MEM[active.era] : MEM[era];
+  const lowmem = mem <= 25;
+  const sigLabel = (m: number) => (m >= 70 ? t.sig_good : m >= 35 ? t.sig_weak : t.sig_damaged);
+
+  const unlock = () => {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    setBooted(true);
+    setShowGate(false);
+    setYear(744);
+    setActive(null);
   };
 
-  const handleSearch = async (overrideQuery?: string) => {
+  const dig = async (override?: string) => {
+    const q = (override ?? input).trim() || String(year);
     if (loading) return;
-    const q = overrideQuery || query;
-    if (!q.trim()) return;
-
     setLoading(true);
-
+    setError(null);
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 60000);
     try {
-      const response = await fetch('/api/generate', {
+      const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q }),
+        signal: ctrl.signal,
       });
-
-      if (!response.ok) throw new Error('Failed to generate');
-
-      const newLog = await response.json();
-      setLogs((prev) => [...prev, newLog]);
-      setCurrentEra(newLog.era);
-      setQuery('');
-    } catch (err) {
-      console.error(err);
+      if (!res.ok) throw new Error('generation failed');
+      const log: LogData = await res.json();
+      setLogs((prev) => [...prev.filter((l) => l.id !== log.id), log]);
+      setActive(log);
+      setYear(log.year);
+      setInput('');
+    } catch (e) {
+      console.error(e);
+      setError(t.err);
     } finally {
+      clearTimeout(to);
       setLoading(false);
     }
   };
 
-  const handlePlayAudio = (log: LogData) => {
-    // TODO: Implement audio playback
-    console.log('Play audio for:', log.id);
-  };
-
   return (
-    <div
-      className={`h-screen overflow-hidden text-gray-200 transition-colors duration-1000 flex flex-col relative ${EraBackgrounds[currentEra]}`}
-    >
-      <CRTOverlay />
+    <div className={`app${booted ? ' booted' : ''}${lowmem ? ' lowmem' : ''}`} data-era={era}>
+      <div className="cube" inert={showGate || undefined}>
+        <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
 
-      {/* Header */}
-      <header className="flex-none border-b border-white/10 bg-black/40 backdrop-blur-sm z-40">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/5 rounded border border-white/10 animate-pulse">
-              <Terminal size={20} className="text-cyan-400" />
-            </div>
-            <div>
-              <h1 className="font-tech text-xl tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 font-bold">
-                {mounted ? t.title : 'ANXI GHOST FREQUENCY'}
-              </h1>
-              <p className="text-[10px] text-gray-500 tracking-[0.2em] font-mono">
-                {mounted ? t.subtitle : 'TIMELINE 640-808 AD // PARALLEL UNIVERSE'}
-              </p>
+        {/* header */}
+        <header className="bar">
+          <div className="bar-l">
+            <div className="seal">安</div>
+            <div className="brand">
+              <div className="mark">安西 · 鬼频</div>
+              <div className="sub">{t.tagline}</div>
             </div>
           </div>
+          <div className="bar-r">
+            <span className="status"><i className="led" /> {t.net} <b>{t.net_on}</b></span>
+            <span className="status">{t.bao} <b>{lowmem ? t.bao_silent : t.bao_ok}</b></span>
+            <span className="mem">
+              <span className="lbl">{t.mem} · MEM</span>
+              <span className="track"><span className="fill" style={{ width: `${mem}%` }} /></span>
+              <span className="pct">{mem}%</span>
+            </span>
+            <button className="langbtn" onClick={() => setLang((l) => (l === 'zh' ? 'en' : 'zh'))} aria-label="中 / EN">{t.lang}</button>
+          </div>
+        </header>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={toggleLanguage}
-              className="p-1 hover:text-cyan-400 transition-colors"
-              title="Switch Language"
-            >
-              <Languages size={16} />
-            </button>
-            <div className="hidden md:flex items-center gap-4 text-xs font-mono text-gray-500">
-              <span>
-                SYS_STATUS:{' '}
-                <span className="text-green-500">{t.status_online}</span>
+        {active ? (
+          /* ===================== reading view ===================== */
+          <>
+            <div className="strip">
+              <span className="sk">频率刻度 {'//'} POS</span>
+              <span className="mini">
+                <span className="zones">{ERAS.map((e) => <i key={e} style={{ flex: 1, background: `rgba(${ACCENT[e].join(',')},.4)` }} />)}</span>
+                <span className="head" style={{ left: `${((active.year - 640) / 168) * 100}%` }} />
               </span>
-              <span>
-                {t.mem_integrity}: 34%
-              </span>
+              <span className="pos">{active.year} AD · {t.eras[active.era]}</span>
+              <button className="retune" onClick={() => setActive(null)}>↺ {t.retune}</button>
             </div>
-          </div>
-        </div>
-      </header>
+            <ReadingSlip key={active.id} log={active} lang={lang} mem={mem} corrupt={CORRUPT[active.era]} accent={ACCENT[active.era]} />
+          </>
+        ) : (
+          /* ===================== tune view ===================== */
+          <>
+            <div className="eras">
+              {ERAS.map((e) => (
+                <button key={e} className="era-tab" aria-pressed={eraOf(year) === e} style={tabVar(TAB[e])} onClick={() => setYear(ERA_START[e])}>
+                  <span className="dot" /> {t.eras[e]} <span className="yr">{ERA_RANGE[e]}</span>
+                </button>
+              ))}
+            </div>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 z-30 relative overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        {logs.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-4">
-            <Database size={48} className="text-cyan-600 mb-4" />
-            <h2 className="font-serif-sc text-2xl">{t.welcome_title}</h2>
-            <p className="max-w-md text-sm font-mono">
-              {t.welcome_desc}
-              <br />
-              {t.data_range}
-            </p>
-          </div>
+            <div className="screen">
+              <AmbientField accent={ACCENT[era]} intensity={0.32 + CORRUPT[era] * 0.4} />
+              <div className="inner hero">
+                <div className="eyebrow">{t.eyebrow}</div>
+                <div className="title-wrap">
+                  <span className="gtitle">
+                    <span className="base">安西</span>
+                    <span className="g r" aria-hidden="true">安西</span>
+                    <span className="g b" aria-hidden="true">安西</span>
+                  </span>
+                </div>
+                <div className="h-sub">GHOST&nbsp;FREQUENCY</div>
+                <p className="intro">{t.intro}</p>
+                <div className="cue"><span className="blink">▸</span> {t.cue}</div>
+              </div>
+              <div className="preview">
+                <div className="pk"><i className="led" /> {t.caught}</div>
+                <div className="py">{year} AD <small>· 龟兹 · SECTOR-04</small></div>
+                <div className="pf">{t.eras[era]} · {t.states[era]}</div>
+                <div className="pa">[ {t.dig} ⏎ / {t.scrub} ]</div>
+              </div>
+            </div>
+
+            <div className="readout">
+              <div className="cell"><div className="k">FREQ</div><div className="v accent">{freqOf(year)} <small>MHz</small></div></div>
+              <div className="cell"><div className="k">YEAR</div><div className="v">{year} <small>AD · {t.states[era]}</small></div></div>
+              <div className="cell"><div className="k">POS</div><div className="v">龟兹 · SECTOR-04</div></div>
+              <div className="cell"><div className="k">SIG</div><div className="v accent"><span className="sigbars">{[0, 1, 2].map((i) => <i key={i} style={{ height: (i + 1) * 4 + 2, opacity: i < sigN(mem) ? 1 : 0.25 }} />)}</span>{sigLabel(mem)}</div></div>
+            </div>
+
+            <Tuner year={year} onScrub={setYear} />
+
+            <div className="dig">
+              <div className="hint">{t.dig_hint}</div>
+              <button className="navbtn" onClick={() => setYear((y) => Math.max(640, y - 1))} aria-label="−1">◂</button>
+              <div className="field-in">
+                <input
+                  value={input}
+                  onChange={(e) => { setInput(e.target.value); if (error) setError(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && dig()}
+                  placeholder={t.input_placeholder}
+                  aria-label={t.input_placeholder}
+                  disabled={loading}
+                />
+                <span className="caret">{loading ? '◜◝◞◟' : t.ready}</span>
+              </div>
+              <button className="navbtn" onClick={() => setYear((y) => Math.min(808, y + 1))} aria-label="+1">▸</button>
+              <button className="dig-btn" onClick={() => dig()} disabled={loading}>⛏ <span className="t">{t.dig_signal}</span></button>
+            </div>
+            {error && <div className="drill-err" role="alert">{error}</div>}
+          </>
         )}
 
-        <div className="space-y-4 pb-4">
-          {logs.map((log) => (
-            <LogEntry
-              key={log.id}
-              log={log}
-              lang={lang}
-              onPlayAudio={handlePlayAudio}
-              isPlaying={false}
-            />
-          ))}
-          <div ref={endOfLogsRef} />
-        </div>
-      </main>
-
-      {/* Input */}
-      <footer className="flex-none bg-black/80 backdrop-blur-md border-t border-white/10 p-4 z-40">
-        <div className="max-w-4xl mx-auto flex gap-2 md:gap-4">
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !loading && handleSearch()}
-              placeholder={t.input_placeholder}
-              className="w-full bg-white/5 border border-white/20 text-cyan-300 px-4 py-3 rounded-none focus:outline-none focus:border-cyan-500 font-mono placeholder:text-gray-600 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 disabled:cursor-wait"
-              disabled={loading}
-            />
-            <div className="absolute right-3 top-3.5 text-xs text-gray-600 font-mono pointer-events-none hidden md:block">
-              {t.cursor_active}
-            </div>
-          </div>
-
-          <button
-            onClick={() => handleSearch()}
-            disabled={loading || !query.trim()}
-            className="px-4 py-2 bg-cyan-900/50 border border-cyan-700 text-cyan-400 hover:bg-cyan-800/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-tech text-sm flex items-center gap-2"
-          >
-            <Search size={16} />
-            <span className="hidden md:inline">{t.btn_retrieve}</span>
-          </button>
-
-          <button
-            onClick={() => handleSearch('Random Log')}
-            disabled={loading}
-            className="px-4 py-2 bg-transparent border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200 transition-all font-tech text-sm flex items-center gap-2"
-            title="Random Access"
-          >
-            <RotateCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
+        {/* archive · strata */}
+        <div className="archive">
+          <span className="ak">{t.archive} {'//'} ARCHIVE</span>
+          {logs.length === 0 ? (
+            <span className="empty">{t.archive_empty}</span>
+          ) : (
+            <span className="chips">
+              {logs.map((l) => (
+                <button key={l.id} className="arch-chip" aria-current={active?.id === l.id} style={tabVar(TAB[l.era])} onClick={() => { setActive(l); setYear(l.year); }}>
+                  <span className="d" /> {l.year} {t.eras[l.era]}
+                </button>
+              ))}
+            </span>
+          )}
         </div>
 
-        <div className="max-w-4xl mx-auto mt-2 text-[10px] text-gray-600 font-mono flex justify-between">
-          <span>{t.connection_encrypted}</span>
-          <span>
-            {t.data_loss}: 99.8%
-          </span>
+        {/* device footer */}
+        <div className="footline">
+          <span>黑立方终端 · HEILIFANG {'//'} {t.net} {t.net_on}端</span>
+          <span>型号 开元-I型 · 龟兹 SECTOR-04 · <button className="lnk" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setBooted(false); setShowGate(true); setActive(null); setLogs([]); }}>{t.replay}</button></span>
         </div>
-      </footer>
+      </div>
 
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="flex flex-col items-center space-y-6">
-            <LoadingSpinner size="lg" />
-            <div className="text-center space-y-2">
-              <p className="text-cyan-400/90 font-mono text-sm tracking-wider">{t.loading_quantum}</p>
-              <p className="text-gray-500 font-mono text-xs">{t.loading_decrypt}</p>
-            </div>
-            <div className="mt-4 px-4 py-2 border border-cyan-900/50 bg-cyan-950/20 rounded">
-              <p className="text-[10px] text-cyan-600/70 font-mono animate-pulse">
-                &gt; ESTABLISHING SECURE CONNECTION...
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {mounted && showGate && <Gate onUnlock={unlock} lang={lang} />}
+      <div className="scan" aria-hidden="true" />
     </div>
   );
 }

@@ -62,7 +62,7 @@ async function getSystemPrompt() {
     }
 
     return `${BASE_SYSTEM_PROMPT}\n\n【HISTORICAL DATABASE (LORE)】\n${loreData}`;
-  } catch (error) {
+  } catch {
     console.warn("[Lore] Failed to load lore.md, using base prompt.");
     return BASE_SYSTEM_PROMPT;
   }
@@ -80,7 +80,7 @@ const USE_SDK = BASE_URL
   ? false
   : process.env.USE_GEMINI_SDK !== 'false';
 
-console.log(`[Gemini] Using ${USE_SDK ? 'SDK' : 'REST API (fetch)'} mode`);
+if (process.env.NODE_ENV !== 'production') console.log(`[Gemini] Using ${USE_SDK ? 'SDK' : 'REST API (fetch)'} mode`);
 
 // ============================================================================
 // METHOD 1: REST API with fetch (for proxy/relay services)
@@ -109,7 +109,16 @@ async function callViaFetch(
   const baseUrl = BASE_URL || 'https://generativelanguage.googleapis.com';
   const url = `${baseUrl}/v1beta/models/${model}:generateContent`;
 
-  const body: any = {
+  const body: {
+    contents: typeof contents;
+    generationConfig: {
+      responseMimeType?: string;
+      responseModalities?: string[];
+      candidateCount?: number;
+      imageConfig?: { aspectRatio: string };
+    };
+    systemInstruction?: { role: string; parts: Array<{ text: string }> };
+  } = {
     contents,
     generationConfig: {},
   };
@@ -138,14 +147,15 @@ async function callViaFetch(
     };
   }
 
-  const response = await fetch(`${url}?key=${API_KEY}`, {
+  // API key goes in the header only — keep it out of the URL so it isn't captured by proxy/access logs
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-goog-api-key': API_KEY,
     },
     body: JSON.stringify(body),
-  }) as any;
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -159,20 +169,6 @@ async function callViaFetch(
 // METHOD 2: Official Google AI SDK (for direct API access)
 // ============================================================================
 
-interface SDKResponsePart {
-  text?: string;
-  inlineData?: {
-    data: string;
-    mimeType: string;
-  };
-}
-
-interface SDKResponseCandidate {
-  content: {
-    parts: SDKResponsePart[];
-  };
-}
-
 async function callViaSDK(
   model: string,
   userPrompt: string,
@@ -183,7 +179,8 @@ async function callViaSDK(
 
   console.log(`[Gemini SDK] Calling model: ${model}`);
 
-  // Build request parameters
+  // Build request parameters (shape is driven by the @google/genai SDK)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const requestParams: any = {
     model,
     contents: userPrompt,
@@ -195,6 +192,7 @@ async function callViaSDK(
   }
 
   // Add response config
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const config: any = {};
   if (options.responseMimeType) {
     config.responseMimeType = options.responseMimeType;
@@ -217,7 +215,8 @@ async function callViaSDK(
     fullText = response.text;
   }
 
-  // Check for image data (if any)
+  // Check for image data (if any) — SDK response shape is read dynamically
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const responseObj = response as any;
   if (responseObj.candidates?.[0]?.content?.parts) {
     for (const part of responseObj.candidates[0].content.parts) {
@@ -295,16 +294,17 @@ export async function generateLog(query: string) {
   }
 
   // Parse JSON from response
-  let jsonMatch = response.match(/\{[\s\S]*\}/);
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error('No JSON found in response');
   }
 
   const parsed = JSON.parse(jsonMatch[0]);
 
-  // Determine era from year
+  // Determine era from year — clamp to the archive's range (640–808) so the UI dial/readout stay valid
   const yearMatch = parsed.year_str.match(/\d{3,4}/);
-  const year = yearMatch ? parseInt(yearMatch[0]) : 790;
+  const parsedYear = yearMatch ? parseInt(yearMatch[0]) : 790;
+  const year = Math.max(640, Math.min(808, Number.isFinite(parsedYear) ? parsedYear : 790));
 
   let era = 'GOLDEN_AGE';
   if (year >= 640 && year <= 750) era = 'GOLDEN_AGE';
@@ -349,7 +349,7 @@ export async function generateImage(prompt: string): Promise<string> {
 
         // Save image
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `anxi_${timestamp}.png`;
+        const filename = `anxi_${timestamp}_${Math.random().toString(36).slice(2, 8)}.png`;
         const filepath = join(downloadsDir, filename);
 
         // Convert base64 to buffer and save
