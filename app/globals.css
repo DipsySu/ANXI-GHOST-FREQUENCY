@@ -284,29 +284,27 @@ html,body{ margin:0; padding:0; background:#040605; overflow-x:hidden; max-width
 .relic.exposed:not(.collected)::before{ content:""; position:absolute; inset:7px; border:2px solid rgba(95,224,122,.85); box-shadow:0 0 0 2px rgba(7,16,11,.85); animation:relicscan .85s steps(2) infinite; }
 .relic.collected{ opacity:.58; cursor:default; filter:drop-shadow(2px 2px 0 #000) grayscale(.25); }
 .relic.collected::before{ content:""; position:absolute; left:20px; right:20px; top:18px; height:26px; background:rgba(5,12,9,.74); box-shadow:inset 0 0 0 2px #e7b24d; }
-.relic-state{ position:absolute; left:50%; top:72px; transform:translateX(-50%); min-width:72px; padding:4px 6px; color:#04100c; background:#37f0a0; box-shadow:0 0 0 2px #04100c; font-size:10px; letter-spacing:.12em; white-space:nowrap; }
-.relic.collected .relic-state{ background:#e7b24d; box-shadow:0 0 0 2px #04100c; }
-.relic.exposed:not(.collected) .relic-state{ animation:tagpulse .7s steps(2) infinite; }
 .relic:disabled{ pointer-events:none; }
 @media (prefers-reduced-motion: no-preference){
   .relic.exposed{ animation:relicpop .42s steps(5) both; }
   @keyframes relicpop{ from{ transform:translate(-50%,-50%) scale(.55); } 60%{ transform:translate(-50%,-50%) scale(1.12); } to{ transform:translate(-50%,-50%) scale(1); } }
   @keyframes relicscan{ 50%{ opacity:.55; transform:scale(1.05); } }
-  @keyframes tagpulse{ 50%{ transform:translateX(-50%) translateY(-2px); box-shadow:0 0 0 2px #04100c, 0 0 12px #37f0a0; } }
 }
 .gate-hud{ position:absolute; left:0; right:0; bottom:42px; z-index:6; text-align:center; pointer-events:none; color:#37f0a0; font-family:var(--px-font); }
 .gate-hud .lbl{ font-size:12px; letter-spacing:.24em; opacity:.85; }
 .relics-row{ display:flex; gap:14px; justify-content:center; margin:12px 0 6px; }
-.relics-row i{ width:14px; height:14px; background:transparent; box-shadow:0 0 0 2px #2a7d5e; }
-.relics-row i.on{ background:#37f0a0; box-shadow:0 0 0 2px #37f0a0; }
-.gate-legend{ display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin-top:12px; }
-.gate-legend span{ position:relative; padding:5px 8px 5px 20px; color:rgba(207,238,222,.78); background:rgba(8,20,16,.62); box-shadow:inset 0 0 0 1px rgba(95,224,122,.22); font-size:10px; letter-spacing:.12em; }
-.gate-legend span::before{ content:""; position:absolute; left:7px; top:50%; width:7px; height:7px; transform:translateY(-50%); box-shadow:0 0 0 1px currentColor; }
-.gate-legend .buried{ color:#7d8c83; }
-.gate-legend .exposed{ color:#37f0a0; }
-.gate-legend .exposed::before{ background:#37f0a0; }
-.gate-legend .done{ color:#e7b24d; }
-.gate-legend .done::before{ background:#e7b24d; }
+.relics-row i{ position:relative; width:17px; height:17px; background:rgba(4,14,10,.82); box-shadow:0 0 0 2px #1f5d45, 3px 3px 0 #000; }
+.relics-row i::before{ content:""; position:absolute; inset:5px; background:rgba(127,174,156,.2); }
+.relics-row i.exposed{ box-shadow:0 0 0 2px #37f0a0, 3px 3px 0 #000, 0 0 14px rgba(55,240,160,.45); }
+.relics-row i.exposed::before{ inset:4px; background:#37f0a0; }
+.relics-row i.done{ background:#1b1408; box-shadow:0 0 0 2px #e7b24d, 3px 3px 0 #000; }
+.relics-row i.done::before{ inset:3px; background:#e7b24d; clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%); }
+@media (prefers-reduced-motion: no-preference){
+  .relics-row i.exposed::before{ animation:slotping .8s steps(2) infinite; }
+  .relics-row i.done{ animation:slotlock .28s steps(3) both; }
+  @keyframes slotping{ 50%{ opacity:.55; transform:scale(.75); } }
+  @keyframes slotlock{ from{ transform:translateY(-4px); } to{ transform:none; } }
+}
 .gate-hint{ position:absolute; left:0; right:0; top:48px; z-index:6; text-align:center; pointer-events:none; font-size:13px; letter-spacing:.14em; color:#cfeede; text-shadow:0 0 6px #000; font-family:var(--px-font); }
 .gate-hint b{ display:block; color:#37f0a0; margin-top:8px; font-size:12px; letter-spacing:.2em; font-weight:400; }
 .gate-skip{ position:absolute; right:18px; top:16px; z-index:7; cursor:pointer; pointer-events:auto; border:0; background:rgba(8,20,16,.7); color:#9fd9c4; font-family:var(--px-font); font-size:12px; letter-spacing:.12em; padding:8px 12px; box-shadow:0 0 0 2px #2a7d5e, 3px 3px 0 #000; }

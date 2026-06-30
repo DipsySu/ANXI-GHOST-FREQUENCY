@@ -9,7 +9,7 @@ const COUNT = 3;            // relics to recover (keeps the 3-dot HUD)
 const MAXHP = 3;            // dig passes to break one soil tile
 const REVEAL_FRAC = 0.55;   // fraction of a relic's covering tiles cleared before it surfaces
 const RELIC_PX = 86;        // on-screen relic size (matches the .relic DOM sprite)
-const DIRT = ['#241a0f', '#2c2113', '#1d1509', '#332817', '#281d10']; // tile base palette
+const DIRT = ['#2c2317', '#302719', '#2a2116', '#33291b', '#281f14']; // salt-crust soil palette
 const DIG_CD = 38;          // ms cooldown per tile per stroke
 const STEP_F = 0.45;        // pointer-stroke sample spacing, in tiles
 
@@ -42,6 +42,10 @@ function makeRelics(): Relic[] {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const n2 = (a: number, b: number) => {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
 
 export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Language; site: DigSite }) {
   const t = translations[lang];
@@ -145,6 +149,46 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
     const base = ctx.createLinearGradient(0, 0, 0, H);
     base.addColorStop(0, '#0e0b07'); base.addColorStop(1, '#070504');
     ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
+    // Uneven sediment stains: broad enough to imply strata, too broken to read as wallpaper.
+    for (let i = 0; i < 5; i++) {
+      const y = H * (0.1 + i * 0.18) + Math.sin(i * 1.9) * 24;
+      const bandH = 18 + n2(i, 15) * 34;
+      const g = ctx.createLinearGradient(0, y, 0, y + bandH);
+      g.addColorStop(0, i % 2 ? 'rgba(96,76,45,0)' : 'rgba(17,11,7,0)');
+      g.addColorStop(0.45, i % 2 ? 'rgba(96,76,45,.09)' : 'rgba(17,11,7,.22)');
+      g.addColorStop(1, i % 2 ? 'rgba(96,76,45,0)' : 'rgba(17,11,7,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, y, W, bandH);
+    }
+    // Clustered salt flecks and broken contour scars in the uncovered dark layer.
+    for (let i = 0; i < 34; i++) {
+      const cx = n2(i, 2) * W, cy = n2(i, 5) * H;
+      const flecks = 2 + Math.floor(n2(i, 8) * 5);
+      ctx.fillStyle = n2(i, 13) > 0.5 ? 'rgba(197,178,125,.12)' : 'rgba(88,69,42,.18)';
+      for (let j = 0; j < flecks; j++) {
+        const x = cx + (n2(i * 17 + j, 3) - 0.5) * 42;
+        const y = cy + (n2(i * 13, j + 9) - 0.5) * 24;
+        const s = n2(i + j, 18) > 0.78 ? 2 : 1;
+        ctx.fillRect(x, y, s, 1);
+      }
+    }
+    ctx.strokeStyle = 'rgba(117,92,54,.13)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 9; i++) {
+      const y = H * n2(i, 11);
+      for (let s = 0; s < 5; s++) {
+        if (n2(i + 31, s + 17) < 0.42) continue;
+        const x0 = n2(i * 7 + s, 21) * W;
+        const len = 64 + n2(i + 43, s + 5) * 150;
+        ctx.beginPath();
+        for (let k = 0; k < 5; k++) {
+          const x = x0 + (len * k) / 4;
+          const yy = y + Math.sin((x + i * 47) * 0.018) * 5 + (n2(i + k, s) - 0.5) * 10;
+          if (k === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+        }
+        ctx.stroke();
+      }
+    }
     ctx.fillStyle = '#171208'; ctx.font = '15px ui-monospace, monospace';
     ctx.fillText(`FIELD_${site.code}`, W * 0.1, H * 0.22);
     ctx.fillText(`${site.mark} // ${site.depth}`, W * 0.6, H * 0.8);
@@ -152,16 +196,31 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
       const img = relicImgs.current[r.src];
       if (!img || !img.complete || img.naturalWidth === 0) continue;
       const cx = r.x * W, cy = r.y * H;
+      if (!r.visible && !r.found) {
+        const sx = Math.floor(r.x * 997);
+        const sy = Math.floor(r.y * 991);
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        for (let i = 0; i < 7; i++) {
+          const ox = (n2(sx + i * 11, sy + 3) - 0.5) * 74;
+          const oy = (n2(sx + 5, sy + i * 13) - 0.5) * 48;
+          const w = 10 + n2(sx + i * 7, sy + 19) * 24;
+          const h = 1 + Math.floor(n2(sx + 23, sy + i * 5) * 3);
+          ctx.fillStyle = i % 2 ? 'rgba(104,82,48,.08)' : 'rgba(8,6,4,.16)';
+          ctx.fillRect(cx + ox - w / 2, cy + oy, w, h);
+        }
+        ctx.restore();
+        continue;
+      }
       ctx.save();
       if (r.found) { ctx.filter = 'sepia(1) saturate(2) brightness(.9)'; ctx.globalAlpha = 0.85; }
       else if (r.visible) { ctx.filter = 'none'; ctx.globalAlpha = 1; }
-      else { ctx.filter = 'grayscale(.65) brightness(.5)'; ctx.globalAlpha = 0.85; }
       ctx.drawImage(img, cx - RELIC_PX / 2, cy - RELIC_PX / 2, RELIC_PX, RELIC_PX);
       ctx.restore();
     }
   }, [site.code, site.mark, site.depth]);
 
-  // --- tiles: chunky dirt blocks with bevel, crack stages, and recessed-depth shadow at hole rims ---
+  // --- tiles: salt-crust cover with faint scanner units, cracks, and collapsed hole rims ---
   const drawTiles = useCallback(() => {
     const cv = tilesRef.current; const ctx = cv?.getContext('2d'); if (!cv || !ctx) return;
     const { T, cols, rows, W, H } = grid.current;
@@ -172,31 +231,91 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
         const v = h[r * cols + c];
         if (v <= 0) continue;
         const x = c * T, y = r * T;
-        const seed = (r * 73 + c * 131) & 3;
-        ctx.fillStyle = DIRT[seed];
+        const depth = y / Math.max(1, H);
+        const grain = n2(c + 11, r + 19);
+        ctx.globalAlpha = 0.92;
+        const red = Math.round(36 + depth * 6 + grain * 3);
+        const green = Math.round(29 + depth * 5 + n2(c + 23, r + 2) * 3);
+        const blue = Math.round(18 + depth * 3 + n2(c + 3, r + 31) * 2);
+        ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
         ctx.fillRect(x, y, T, T);
-        ctx.fillStyle = 'rgba(0,0,0,.28)';
-        ctx.fillRect(x + ((c * 7) % T), y + ((r * 5) % T), 2, 2);
-        ctx.fillRect(x + ((c * 13 + 6) % T), y + ((r * 11 + 9) % T), 2, 2);
-        // pixel bevel — light top/left, dark bottom/right
-        ctx.fillStyle = 'rgba(150,120,76,.30)'; ctx.fillRect(x, y, T, 2); ctx.fillRect(x, y, 2, T);
-        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, y + T - 2, T, 2); ctx.fillRect(x + T - 2, y, 2, T);
-        // recessed depth: darken edges facing an already-dug (empty) neighbour
-        ctx.fillStyle = 'rgba(0,0,0,.5)';
-        if (c > 0 && h[r * cols + c - 1] <= 0) ctx.fillRect(x, y, 4, T);
-        if (c < cols - 1 && h[r * cols + c + 1] <= 0) ctx.fillRect(x + T - 4, y, 4, T);
-        if (r > 0 && h[(r - 1) * cols + c] <= 0) ctx.fillRect(x, y, T, 4);
-        if (r < rows - 1 && h[(r + 1) * cols + c] <= 0) ctx.fillRect(x, y + T - 4, T, 4);
+        ctx.globalAlpha = 1;
+        const wash = n2(c + 71, r + 29);
+        if (wash > 0.88) {
+          ctx.fillStyle = wash > 0.96 ? 'rgba(87,67,39,.2)' : 'rgba(186,151,86,.1)';
+          const wy = y + 5 + Math.floor(n2(c + 17, r + 41) * Math.max(4, T - 14));
+          const wx = x + 4 + Math.floor(n2(c + 9, r + 33) * Math.max(2, T - 18));
+          ctx.fillRect(wx, wy, 5 + Math.floor(n2(c + 44, r + 6) * 12), 1);
+        }
+        // mottled salt crust, not a tile bevel.
+        const specks = 2 + Math.floor(n2(c + 19, r + 23) * 3);
+        for (let i = 0; i < specks; i++) {
+          const px = x + 4 + Math.floor(n2(c * 9 + i, r * 7) * Math.max(4, T - 8));
+          const py = y + 4 + Math.floor(n2(c * 5, r * 11 + i) * Math.max(4, T - 8));
+          ctx.fillStyle = i % 2 ? 'rgba(0,0,0,.18)' : 'rgba(169,139,84,.12)';
+          ctx.fillRect(px, py, 2, 1 + (i & 1));
+        }
+        // The scanner grid is barely there; the excavation edges carry the square grammar.
+        ctx.fillStyle = 'rgba(204,174,111,.025)';
+        if (r % 6 === 0) ctx.fillRect(x, y, T, 1);
+        if (c % 9 === 0 && r % 2 === 0) ctx.fillRect(x, y, 1, T);
+        // Sparse crust seams: occasional short fractures, not repeated tile cracks.
+        if (n2(c + 3, r + 5) > 0.86) {
+          ctx.strokeStyle = 'rgba(0,0,0,.34)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          const sx = x + T * (0.2 + n2(c, r + 31) * 0.56);
+          const sy = y + T * (0.16 + n2(c + 11, r) * 0.56);
+          const horizontal = n2(c + 29, r + 2) > 0.52;
+          ctx.moveTo(sx, sy);
+          if (horizontal) {
+            ctx.lineTo(sx + T * (0.18 + n2(c + 7, r) * 0.24), sy + (n2(c + 8, r + 4) - 0.5) * T * 0.18);
+            if (n2(c + 18, r + 2) > 0.55) ctx.lineTo(sx + T * 0.08, sy + T * 0.22);
+          } else {
+            ctx.lineTo(sx + (n2(c + 7, r) - 0.5) * T * 0.18, sy + T * (0.18 + n2(c + 9, r) * 0.22));
+            if (n2(c + 18, r + 2) > 0.55) ctx.lineTo(sx - T * 0.14, sy + T * 0.12);
+          }
+          ctx.stroke();
+        }
+        // recessed depth: only holes get strong edges, so digging creates the excavation grammar.
+        const edgeShadow = 'rgba(0,0,0,.68)';
+        const edgeSalt = 'rgba(183,149,86,.24)';
+        if (c > 0 && h[r * cols + c - 1] <= 0) { ctx.fillStyle = edgeShadow; ctx.fillRect(x, y, 6, T); ctx.fillStyle = edgeSalt; ctx.fillRect(x + 6, y + 3, 2, T - 6); }
+        if (c < cols - 1 && h[r * cols + c + 1] <= 0) { ctx.fillStyle = edgeShadow; ctx.fillRect(x + T - 6, y, 6, T); ctx.fillStyle = edgeSalt; ctx.fillRect(x + T - 8, y + 3, 2, T - 6); }
+        if (r > 0 && h[(r - 1) * cols + c] <= 0) { ctx.fillStyle = edgeShadow; ctx.fillRect(x, y, T, 6); ctx.fillStyle = edgeSalt; ctx.fillRect(x + 3, y + 6, T - 6, 2); }
+        if (r < rows - 1 && h[(r + 1) * cols + c] <= 0) { ctx.fillStyle = edgeShadow; ctx.fillRect(x, y + T - 6, T, 6); ctx.fillStyle = edgeSalt; ctx.fillRect(x + 3, y + T - 8, T - 6, 2); }
         if (v < MAXHP) {
           ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(x + T * 0.3, y + 3); ctx.lineTo(x + T * 0.5, y + T * 0.55); ctx.lineTo(x + T * 0.38, y + T - 3); ctx.stroke();
+          ctx.fillStyle = 'rgba(205,177,119,.12)';
+          ctx.fillRect(x + 3, y + T - 5, T - 7, 2);
         }
         if (v === 1) {
-          ctx.fillStyle = 'rgba(120,96,58,.22)'; ctx.fillRect(x + 2, y + 2, T - 4, T - 4);
+          ctx.fillStyle = 'rgba(12,8,5,.22)'; ctx.fillRect(x + 2, y + 2, T - 4, T - 4);
           ctx.strokeStyle = 'rgba(0,0,0,.55)';
           ctx.beginPath(); ctx.moveTo(x + T * 0.66, y + 4); ctx.lineTo(x + T * 0.52, y + T * 0.5); ctx.lineTo(x + T * 0.7, y + T - 4); ctx.stroke();
-          ctx.clearRect(x, y, 4, 4); ctx.clearRect(x + T - 5, y + T - 5, 5, 5); ctx.clearRect(x + T - 4, y, 4, 4);
+          ctx.clearRect(x, y, 3 + Math.floor(n2(c, r) * 4), 3);
+          ctx.clearRect(x + T - 5, y + T - 5, 5, 5);
+          if (n2(c + 40, r) > 0.5) ctx.clearRect(x + T - 4, y, 4, 4);
         }
+      }
+    }
+    // Broken surface seams across the still-covered surface.
+    ctx.strokeStyle = 'rgba(143,111,62,.1)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 7; i++) {
+      const y = H * (0.1 + i * 0.14) + Math.sin(i) * 18;
+      for (let s = 0; s < 8; s++) {
+        if (n2(i + 6, s + 40) < 0.5) continue;
+        const x0 = n2(i * 19 + s, 4) * W;
+        const len = 38 + n2(i + 18, s + 2) * 118;
+        ctx.beginPath();
+        for (let k = 0; k < 4; k++) {
+          const x = x0 + (len * k) / 3;
+          const yy = y + Math.sin(x * 0.015 + i * 1.9) * 4 + (n2(i + k, s + 20) - 0.5) * 8;
+          if (k === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+        }
+        ctx.stroke();
       }
     }
   }, []);
@@ -488,7 +607,6 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={r.src} alt="" />
-          <span className="relic-state">{r.found ? t.gate_done : r.visible ? t.gate_exposed : t.gate_buried}</span>
         </button>
       ))}
 
@@ -515,13 +633,15 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
 
       <div className="gate-hud">
         <div className="lbl">{t.recovered}</div>
-        <div className="relics-row">{relics.map((_, i) => <i key={i} className={i < collected ? 'on' : ''} />)}</div>
-        <div className="lbl" style={{ opacity: 0.6 }}>{collected} / {relics.length}</div>
-        <div className="gate-legend" aria-hidden="true">
-          <span className="buried">{t.gate_buried}</span>
-          <span className="exposed">{t.gate_exposed}</span>
-          <span className="done">{t.gate_done}</span>
+        <div className="relics-row" aria-hidden="true">
+          {relics.map((r, i) => (
+            <i
+              key={i}
+              className={r.found ? 'done' : r.visible ? 'exposed' : 'buried'}
+            />
+          ))}
         </div>
+        <div className="lbl" style={{ opacity: 0.6 }}>{collected} / {relics.length}</div>
       </div>
       {allFound && <div className="boot show">{t.booted}</div>}
     </div>
