@@ -4,6 +4,7 @@ import { lookup as dnsLookup } from 'dns';
 import { Agent as HttpsAgent } from 'https';
 import fetch from 'node-fetch';
 import { GoogleGenAI } from '@google/genai';
+import { buildLifeDetailPrompt } from './life-detail-cards';
 
 const BASE_SYSTEM_PROMPT = `【ROLE SETTING】
 You are LI GUICHEN (李归尘), Codename: "Sand Wolf" (沙狼).
@@ -72,8 +73,8 @@ async function getSystemPrompt() {
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
 const BASE_URL = process.env.BASE_URL;
-const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash-exp';
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash-exp';
+const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image';
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com';
 const GEMINI_API_HOST_IP = process.env.GEMINI_API_HOST_IP?.trim();
 
@@ -190,6 +191,34 @@ async function callViaFetch(
   return response.json() as Promise<GenerateResponse>;
 }
 
+async function callImageViaFetch(prompt: string) {
+  const baseUrl = BASE_URL || 'https://generativelanguage.googleapis.com';
+  const url = `${baseUrl}/v1beta/interactions`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': API_KEY,
+    },
+    agent: geminiFetchAgent,
+    body: JSON.stringify({
+      model: IMAGE_MODEL,
+      input: prompt,
+      response_modalities: ['image'],
+      response_mime_type: 'image/png',
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini image API error: ${response.status} - ${errorText}`);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return response.json() as Promise<any>;
+}
+
 // ============================================================================
 // METHOD 2: Official Google AI SDK (for direct API access)
 // ============================================================================
@@ -269,6 +298,21 @@ async function callViaSDK(
   return { candidates };
 }
 
+async function callImageViaSDK(prompt: string) {
+  const ai = new GoogleGenAI({});
+
+  console.log(`[Gemini SDK] Calling image model: ${IMAGE_MODEL}`);
+
+  // Interactions is the current SDK path for Gemini image generation models.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return await (ai as any).interactions.create({
+    model: IMAGE_MODEL,
+    input: prompt,
+    response_modalities: ['image'],
+    response_mime_type: 'image/png',
+  });
+}
+
 // ============================================================================
 // Unified API
 // ============================================================================
@@ -302,10 +346,65 @@ async function callGeminiAPI(
   }
 }
 
+function findImageData(value: unknown): { data: string; mimeType: string } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+
+  const record = value as Record<string, unknown>;
+  const data = typeof record.data === 'string' ? record.data : undefined;
+  const mimeType = typeof record.mime_type === 'string'
+    ? record.mime_type
+    : typeof record.mimeType === 'string'
+      ? record.mimeType
+      : undefined;
+
+  if (data && mimeType?.startsWith('image/')) {
+    return { data: data.includes(',') ? data.split(',').pop() || data : data, mimeType };
+  }
+
+  for (const child of Object.values(record)) {
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        const found = findImageData(item);
+        if (found) return found;
+      }
+      continue;
+    }
+
+    const found = findImageData(child);
+    if (found) return found;
+  }
+
+  return undefined;
+}
+
+async function callGeminiImageAPI(prompt: string) {
+  return USE_SDK ? await callImageViaSDK(prompt) : await callImageViaFetch(prompt);
+}
+
+function pickString(record: Record<string, unknown>, keys: string[], fallback = '') {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+
+  return fallback;
+}
+
+function pickYear(record: Record<string, unknown>, query: string) {
+  const yearText = pickString(record, ['year_str', 'yearStr', 'year', 'date', 'archive_year'], query);
+  const yearMatch = yearText.match(/\d{3,4}/) || query.match(/\d{3,4}/);
+  const parsedYear = yearMatch ? parseInt(yearMatch[0], 10) : 790;
+
+  return Math.max(640, Math.min(808, Number.isFinite(parsedYear) ? parsedYear : 790));
+}
+
 export async function generateLog(query: string) {
+  const lifeDetailPrompt = buildLifeDetailPrompt(query);
+  const jsonContract = `Return one strict JSON object only. Use these exact snake_case keys: year_str, location, signal, sender, content, image_prompt, last_post. Do not rename keys to camelCase.`;
   const prompt = query === 'Random Log'
-    ? 'Generate a random log entry from any year between 640-808 AD.'
-    : `User Query: ${query}\n\nGenerate a log entry responding to this query.`;
+    ? `Generate a random log entry from any year between 640-808 AD.\n\n${lifeDetailPrompt}\n\n${jsonContract}`
+    : `User Query: ${query}\n\n${lifeDetailPrompt}\n\nGenerate a log entry responding to this query.\n\n${jsonContract}`;
 
   const data = await callGeminiAPI(
     [{ role: 'user', parts: [{ text: prompt }] }],
@@ -327,9 +426,8 @@ export async function generateLog(query: string) {
   const parsed = JSON.parse(jsonMatch[0]);
 
   // Determine era from year — clamp to the archive's range (640–808) so the UI dial/readout stay valid
-  const yearMatch = parsed.year_str.match(/\d{3,4}/);
-  const parsedYear = yearMatch ? parseInt(yearMatch[0]) : 790;
-  const year = Math.max(640, Math.min(808, Number.isFinite(parsedYear) ? parsedYear : 790));
+  const parsedRecord = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+  const year = pickYear(parsedRecord, query);
 
   let era = 'GOLDEN_AGE';
   if (year >= 640 && year <= 750) era = 'GOLDEN_AGE';
@@ -341,13 +439,13 @@ export async function generateLog(query: string) {
   return {
     id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     year,
-    location: parsed.location,
-    sender: parsed.sender,
-    signalQuality: parsed.signal,
-    content: parsed.content,
+    location: pickString(parsedRecord, ['location', 'place', 'archive_source'], '龟兹地下掩体 · 未标注区'),
+    sender: pickString(parsedRecord, ['sender', 'from'], '李归尘 (沙狼) [Status: Critical]'),
+    signalQuality: pickString(parsedRecord, ['signal', 'signalQuality', 'signal_quality'], '微弱-Connecting...'),
+    content: pickString(parsedRecord, ['content', 'message', 'log', 'text'], '信号残缺。黑立方只吐出一行乱码。'),
     era,
-    imagePrompt: parsed.image_prompt,
-    lastPost: parsed.last_post,
+    imagePrompt: pickString(parsedRecord, ['image_prompt', 'imagePrompt', 'image'], 'Gritty Tang Dynasty cyberpunk bunker, old Anxi soldier, green terminal glow, dusty ancient Chinese frontier'),
+    lastPost: pickString(parsedRecord, ['last_post', 'lastPost', 'footer'], 'Battery: --% | Signal corrupted'),
   };
 }
 
@@ -357,35 +455,27 @@ export async function generateImage(prompt: string): Promise<string> {
   try {
     console.log(`[ImageGen] Generating image with prompt: ${prompt.substring(0, 100)}...`);
 
-    const data = await callGeminiAPI(
-      [{ role: 'user', parts: [{ text: enhancedPrompt }] }],
-      { responseModalities: ['IMAGE'] }
-    );
+    const data = await callGeminiImageAPI(enhancedPrompt);
+    const image = findImageData(data);
 
-    // Extract base64 image data
-    const parts = data.candidates[0]?.content?.parts || [];
-    for (const part of parts) {
-      if (part.inlineData?.data) {
-        const base64Data = part.inlineData.data;
+    if (image) {
+      // Create downloads directory if it doesn't exist
+      const downloadsDir = join(process.cwd(), 'public', 'downloads');
+      await mkdir(downloadsDir, { recursive: true });
 
-        // Create downloads directory if it doesn't exist
-        const downloadsDir = join(process.cwd(), 'public', 'downloads');
-        await mkdir(downloadsDir, { recursive: true });
+      // Save image
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `anxi_${timestamp}_${Math.random().toString(36).slice(2, 8)}.png`;
+      const filepath = join(downloadsDir, filename);
 
-        // Save image
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `anxi_${timestamp}_${Math.random().toString(36).slice(2, 8)}.png`;
-        const filepath = join(downloadsDir, filename);
+      // Convert base64 to buffer and save
+      const buffer = Buffer.from(image.data, 'base64');
+      await writeFile(filepath, buffer);
 
-        // Convert base64 to buffer and save
-        const buffer = Buffer.from(base64Data, 'base64');
-        await writeFile(filepath, buffer);
+      console.log(`[ImageGen] Saved to: ${filename}`);
 
-        console.log(`[ImageGen] Saved to: ${filename}`);
-
-        // Return public URL
-        return `/downloads/${filename}`;
-      }
+      // Return public URL
+      return `/downloads/${filename}`;
     }
 
     console.log('[ImageGen] No image data in response');

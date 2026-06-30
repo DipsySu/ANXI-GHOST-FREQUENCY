@@ -3,6 +3,17 @@ import { generateLog, generateImage } from '@/lib/gemini';
 
 const ENABLE_IMAGE_GENERATION = process.env.ENABLE_IMAGE_GENERATION === 'true';
 
+function formatDevError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const modelMatch = message.match(/models\/([^"\s]+) is not found/);
+
+  if (modelMatch) {
+    return `DEV · Gemini 模型不可用:${modelMatch[1]}。请重启 dev server 载入新默认模型;如果 .env.local 里显式设置了 GEMINI_TEXT_MODEL 或 GEMINI_IMAGE_MODEL,改成 gemini-2.5-flash / gemini-3.1-flash-image。`;
+  }
+
+  return `DEV · 生成失败:${message}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -45,11 +56,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Generate error:', error);
-    const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       {
         error: 'Failed to generate log',
-        ...(process.env.NODE_ENV !== 'production' && { dev: `DEV · 生成失败:${msg}` }),
+        ...(process.env.NODE_ENV !== 'production' && { dev: formatDevError(error) }),
       },
       { status: 500 },
     );
