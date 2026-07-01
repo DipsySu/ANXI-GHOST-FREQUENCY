@@ -15,35 +15,34 @@ export function portraitFor(sender: string): string | null {
 }
 
 /**
- * Pre-generated era scenes — 8-bit pixel scenes + cinematic concept art, mixed per era;
- * sceneFor() picks one deterministically per log. Concept masters live full-res under
- * /public/generated/anxi-general (PNG, git-ignored); the committed runtime copies are the
- * web-optimized .jpg below. Drop a new image into the right era array to add it to rotation.
+ * Pre-generated era scenes — all runtime scene art is kept in the same pixel-art language.
+ * sceneFor() picks one deterministically per log. The imagegen-derived scene set lives under
+ * /public/generated/anxi-pixel as web-light 512x288 PNG assets.
  */
-const GEN = '/generated/anxi-general';
+const PIXEL = '/generated/anxi-pixel';
 const SCENES: Record<Era, string[]> = {
   [Era.GOLDEN_AGE]: [
     '/scenes/scene_golden_kucha.png', '/scenes/scene_golden_market.png',
-    `${GEN}/01-golden-kucha-market.jpg`, `${GEN}/07-khotan-jade-shrine.jpg`,
-    `${GEN}/08-frontier-green-beacon.jpg`, `${GEN}/09-kucha-glitch-dance.jpg`,
-    `${GEN}/11-shule-granary-relay.jpg`, `${GEN}/15-cloth-allotment-warehouse.jpg`,
-    `${GEN}/16-mechanical-horse-stable.jpg`,
+    `${PIXEL}/01-golden-kucha-market.png`, `${PIXEL}/07-khotan-jade-shrine.png`,
+    `${PIXEL}/08-frontier-green-beacon.png`, `${PIXEL}/09-kucha-glitch-dance.png`,
+    `${PIXEL}/11-shule-granary-relay.png`, `${PIXEL}/15-cloth-allotment-warehouse.png`,
+    `${PIXEL}/16-mechanical-horse-stable.png`,
   ],
   [Era.TURNING_POINT]: [
     '/scenes/scene_turning_alert.png',
-    `${GEN}/02-hexi-link-lost.jpg`, `${GEN}/14-suyab-evacuation-road.jpg`,
+    `${PIXEL}/02-hexi-link-lost.png`, `${PIXEL}/14-suyab-evacuation-road.png`,
   ],
   [Era.WASTELAND]: [
     '/scenes/scene_wasteland_hexi.png', '/scenes/scene_wasteland_bunker.png',
-    `${GEN}/03-kucha-bunker-night-watch.jpg`, `${GEN}/04-white-haired-garrison-gate.jpg`,
-    `${GEN}/06-child-courier-bunker.jpg`, `${GEN}/12-beiting-snow-archive.jpg`,
-    `${GEN}/13-khotan-jade-relay.jpg`, `${GEN}/17-night-sluice-repair.jpg`,
+    `${PIXEL}/03-kucha-bunker-night-watch.png`, `${PIXEL}/04-white-haired-garrison-gate.png`,
+    `${PIXEL}/06-child-courier-bunker.png`, `${PIXEL}/12-beiting-snow-archive.png`,
+    `${PIXEL}/13-khotan-jade-relay.png`, `${PIXEL}/17-night-sluice-repair.png`,
   ],
   [Era.GHOST_SIGNAL]: [
     '/scenes/scene_ghost_kucha.png', '/scenes/scene_ghost_suiye.png',
-    `${GEN}/05-dead-canal-relics.jpg`, `${GEN}/10-black-cube-excavation.jpg`,
-    `${GEN}/18-black-sun-dragonbones.jpg`, `${GEN}/19-cracked-bell-low-frequency.jpg`,
-    `${GEN}/20-final-signal-chamber.jpg`,
+    `${PIXEL}/05-dead-canal-relics.png`, `${PIXEL}/10-black-cube-excavation.png`,
+    `${PIXEL}/18-black-sun-dragonbones.png`, `${PIXEL}/19-cracked-bell-low-frequency.png`,
+    `${PIXEL}/20-final-signal-chamber.png`,
   ],
 };
 
@@ -52,10 +51,6 @@ export function sceneFor(era: Era, seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   return arr[h % arr.length];
-}
-
-export function isConceptScene(src: string): boolean {
-  return src.startsWith(`${GEN}/`);
 }
 
 export const RELICS = {

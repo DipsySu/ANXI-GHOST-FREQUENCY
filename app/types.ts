@@ -14,7 +14,6 @@ export interface LogData {
   content: string;
   era: Era;
   audioBase64?: string;
-  imageUrl?: string;
   imagePrompt?: string;
   lastPost?: string;
 }

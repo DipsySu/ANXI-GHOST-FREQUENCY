@@ -2,7 +2,7 @@
 
 > Connecting to the Parallel Tang Dynasty (640-808 AD)
 
-A cyber-archaeology field terminal that recovers lost carrier signals from a cyberpunk version of the Tang Dynasty's Anxi Protectorate. Enter years or keywords to retrieve corrupted frontier logs, accompanied by historical/sci-fi scene images.
+A cyber-archaeology field terminal that recovers lost carrier signals from a cyberpunk version of the Tang Dynasty's Anxi Protectorate. Enter years or keywords to retrieve corrupted frontier logs, accompanied by unified pixel-art signal reconstructions.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)
@@ -26,7 +26,7 @@ This project combines history with cyberpunk aesthetics, creating an immersive s
 - **Field Interface**: Next.js with Tailwind CSS
 - **Bilingual**: English and Chinese support
 - **AI-Powered**: Text generation via Google Gemini API
-- **Image Generation**: AI-generated scene visuals using Gemini 3 Pro Image
+- **Unified Pixel Scenes**: imagegen-derived 8-bit / 16-bit scene set, optimized for the field-terminal UI
 - **Random Excavation**: site and relic pools make each opening dig feel different
 - **Frequency System**: Dynamic content based on historical timeline
 - **CRT Effect**: Retro field-terminal aesthetics
@@ -83,7 +83,6 @@ GEMINI_API_KEY=your_api_key_here
 
 # Optional
 # GEMINI_TEXT_MODEL=gemini-2.5-flash
-# GEMINI_IMAGE_MODEL=gemini-3-pro-image
 # BASE_URL=http://your-proxy-endpoint:port
 ```
 
@@ -102,7 +101,9 @@ ANXI-GHOST-FREQUENCY/
 ├── lib/
 │   └── gemini.ts       # Gemini API wrapper
 ├── public/
-│   └── downloads/      # Generated images
+│   ├── generated/      # Runtime pixel-scene assets
+│   ├── scenes/         # Original pixel backgrounds
+│   └── sprites/        # Portraits, relics, and UI sprites
 └── package.json
 ```
 
@@ -113,7 +114,7 @@ ANXI-GHOST-FREQUENCY/
 Enter a year (640-808 AD) or keyword to retrieve a log entry from the timeline. The AI will generate:
 
 - A diary entry from a soldier or civilian
-- An AI-generated scene image
+- A deterministic pixel-art scene reconstruction
 - Signal quality and location info
 
 ---

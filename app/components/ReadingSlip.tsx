@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { LogData } from '../types';
 import { translations, Language } from '../constants/translations';
-import { isConceptScene, portraitFor, sceneFor } from '../constants/assets';
+import { portraitFor, sceneFor } from '../constants/assets';
 import { AmbientField } from './AmbientField';
 
 function sigInfo(q: string, t: typeof translations['zh']) {
@@ -64,8 +64,7 @@ export function ReadingSlip({ log, lang, mem, corrupt, accent }: {
   const t = translations[lang];
   const s = sigInfo(log.signalQuality, t);
   const portrait = portraitFor(log.sender);
-  const scene = log.imageUrl || sceneFor(log.era, log.id);
-  const sceneType = isConceptScene(scene) ? 'concept' : 'pixel';
+  const scene = sceneFor(log.era, log.id);
   const { out, done } = useDecode(log.content, corrupt);
   const low = mem <= 25;
 
@@ -101,12 +100,12 @@ export function ReadingSlip({ log, lang, mem, corrupt, accent }: {
 
         <div className="slip-visual">
           <div className="vk">{t.visual}</div>
-          <div className={`frame scene-${sceneType}`}>
+          <div className="frame scene-pixel">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={scene} alt="" loading="lazy" />
             <span className="vscan" aria-hidden="true" />
           </div>
-          <div className="vcap">{t.eras[log.era]} · {sceneType === 'concept' ? t.visual_concept : t.visual_pixel}</div>
+          <div className="vcap">{t.eras[log.era]} · {t.visual_pixel}</div>
         </div>
 
         <div className="slip-foot">

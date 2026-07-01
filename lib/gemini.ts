@@ -1,4 +1,4 @@
-import { writeFile, mkdir, readFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { lookup as dnsLookup } from 'dns';
 import { Agent as HttpsAgent } from 'https';
@@ -74,7 +74,6 @@ async function getSystemPrompt() {
 const API_KEY = process.env.GEMINI_API_KEY || '';
 const BASE_URL = process.env.BASE_URL;
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image';
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com';
 const GEMINI_API_HOST_IP = process.env.GEMINI_API_HOST_IP?.trim();
 
@@ -116,10 +115,6 @@ interface GenerateResponse {
     content: {
       parts: Array<{
         text?: string;
-        inlineData?: {
-          data: string;
-          mimeType: string;
-        };
       }>;
     };
   }>;
@@ -128,7 +123,7 @@ interface GenerateResponse {
 async function callViaFetch(
   model: string,
   contents: Array<{ role: string; parts: Array<{ text: string }> }>,
-  options: { responseMimeType?: string; responseModalities?: string[]; systemInstruction?: string }
+  options: { responseMimeType?: string; systemInstruction?: string }
 ) {
   // Use official Google API if no BASE_URL, otherwise use proxy
   const baseUrl = BASE_URL || 'https://generativelanguage.googleapis.com';
@@ -138,9 +133,6 @@ async function callViaFetch(
     contents: typeof contents;
     generationConfig: {
       responseMimeType?: string;
-      responseModalities?: string[];
-      candidateCount?: number;
-      imageConfig?: { aspectRatio: string };
     };
     systemInstruction?: { role: string; parts: Array<{ text: string }> };
   } = {
@@ -152,23 +144,11 @@ async function callViaFetch(
     body.generationConfig.responseMimeType = options.responseMimeType;
   }
 
-  if (options.responseModalities) {
-    body.generationConfig.responseModalities = options.responseModalities;
-  }
-
   // Only add systemInstruction for text generation
   if (options.systemInstruction) {
     body.systemInstruction = {
       role: 'user',
       parts: [{ text: options.systemInstruction }]
-    };
-  }
-
-  // Add image config for image generation
-  if (options.responseModalities?.includes('IMAGE')) {
-    body.generationConfig.candidateCount = 1;
-    body.generationConfig.imageConfig = {
-      aspectRatio: '4:3'
     };
   }
 
@@ -191,34 +171,6 @@ async function callViaFetch(
   return response.json() as Promise<GenerateResponse>;
 }
 
-async function callImageViaFetch(prompt: string) {
-  const baseUrl = BASE_URL || 'https://generativelanguage.googleapis.com';
-  const url = `${baseUrl}/v1beta/interactions`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': API_KEY,
-    },
-    agent: geminiFetchAgent,
-    body: JSON.stringify({
-      model: IMAGE_MODEL,
-      input: prompt,
-      response_modalities: ['image'],
-      response_mime_type: 'image/png',
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini image API error: ${response.status} - ${errorText}`);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return response.json() as Promise<any>;
-}
-
 // ============================================================================
 // METHOD 2: Official Google AI SDK (for direct API access)
 // ============================================================================
@@ -226,7 +178,7 @@ async function callImageViaFetch(prompt: string) {
 async function callViaSDK(
   model: string,
   userPrompt: string,
-  options: { responseMimeType?: string; responseModalities?: string[]; systemInstruction?: string }
+  options: { responseMimeType?: string; systemInstruction?: string }
 ): Promise<GenerateResponse> {
   // The client automatically gets API key from GEMINI_API_KEY env var
   const ai = new GoogleGenAI({});
@@ -251,33 +203,17 @@ async function callViaSDK(
   if (options.responseMimeType) {
     config.responseMimeType = options.responseMimeType;
   }
-  if (options.responseModalities?.includes('IMAGE')) {
-    config.responseModalities = ['IMAGE'];
-    config.candidateCount = 1;
-  }
   if (Object.keys(config).length > 0) {
     requestParams.config = config;
   }
 
   const response = await ai.models.generateContent(requestParams);
 
-  // Extract text and inline data
+  // Extract text
   let fullText = '';
-  let inlineData: { data: string; mimeType: string } | undefined;
 
   if (response.text) {
     fullText = response.text;
-  }
-
-  // Check for image data (if any) — SDK response shape is read dynamically
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const responseObj = response as any;
-  if (responseObj.candidates?.[0]?.content?.parts) {
-    for (const part of responseObj.candidates[0].content.parts) {
-      if (part.inlineData) {
-        inlineData = part.inlineData;
-      }
-    }
   }
 
   // Return in the same format as fetch
@@ -291,26 +227,7 @@ async function callViaSDK(
     candidates[0].content.parts.push({ text: fullText });
   }
 
-  if (inlineData) {
-    candidates[0].content.parts.push({ inlineData });
-  }
-
   return { candidates };
-}
-
-async function callImageViaSDK(prompt: string) {
-  const ai = new GoogleGenAI({});
-
-  console.log(`[Gemini SDK] Calling image model: ${IMAGE_MODEL}`);
-
-  // Interactions is the current SDK path for Gemini image generation models.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return await (ai as any).interactions.create({
-    model: IMAGE_MODEL,
-    input: prompt,
-    response_modalities: ['image'],
-    response_mime_type: 'image/png',
-  });
 }
 
 // ============================================================================
@@ -319,66 +236,24 @@ async function callImageViaSDK(prompt: string) {
 
 async function callGeminiAPI(
   contents: Array<{ role: string; parts: Array<{ text: string }> }>,
-  options: { responseMimeType?: string; responseModalities?: string[] } = {}
+  options: { responseMimeType?: string } = {}
 ) {
-  const model = options.responseModalities?.includes('IMAGE') ? IMAGE_MODEL : TEXT_MODEL;
-
-  // Get system instruction for text generation only
-  const systemInstruction = !options.responseModalities?.includes('IMAGE')
-    ? await getSystemPrompt()
-    : undefined;
+  const systemInstruction = await getSystemPrompt();
 
   // Extract user prompt from contents (for SDK mode)
   const userPrompt = contents[contents.length - 1]?.parts[0]?.text || '';
 
   if (USE_SDK) {
-    return await callViaSDK(model, userPrompt, {
+    return await callViaSDK(TEXT_MODEL, userPrompt, {
       responseMimeType: options.responseMimeType,
-      responseModalities: options.responseModalities,
       systemInstruction
     });
   } else {
-    return await callViaFetch(model, contents, {
+    return await callViaFetch(TEXT_MODEL, contents, {
       responseMimeType: options.responseMimeType,
-      responseModalities: options.responseModalities,
       systemInstruction
     });
   }
-}
-
-function findImageData(value: unknown): { data: string; mimeType: string } | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-
-  const record = value as Record<string, unknown>;
-  const data = typeof record.data === 'string' ? record.data : undefined;
-  const mimeType = typeof record.mime_type === 'string'
-    ? record.mime_type
-    : typeof record.mimeType === 'string'
-      ? record.mimeType
-      : undefined;
-
-  if (data && mimeType?.startsWith('image/')) {
-    return { data: data.includes(',') ? data.split(',').pop() || data : data, mimeType };
-  }
-
-  for (const child of Object.values(record)) {
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        const found = findImageData(item);
-        if (found) return found;
-      }
-      continue;
-    }
-
-    const found = findImageData(child);
-    if (found) return found;
-  }
-
-  return undefined;
-}
-
-async function callGeminiImageAPI(prompt: string) {
-  return USE_SDK ? await callImageViaSDK(prompt) : await callImageViaFetch(prompt);
 }
 
 function pickString(record: Record<string, unknown>, keys: string[], fallback = '') {
@@ -447,41 +322,4 @@ export async function generateLog(query: string) {
     imagePrompt: pickString(parsedRecord, ['image_prompt', 'imagePrompt', 'image'], 'Gritty Tang Dynasty cyberpunk bunker, old Anxi soldier, green terminal glow, dusty ancient Chinese frontier'),
     lastPost: pickString(parsedRecord, ['last_post', 'lastPost', 'footer'], 'Battery: --% | Signal corrupted'),
   };
-}
-
-export async function generateImage(prompt: string): Promise<string> {
-  const enhancedPrompt = `(Tang Dynasty Cyberpunk Style), (Silkpunk), (Gritty Atmosphere), ${prompt}, NO European elements, NO Western armor, NO Anime`;
-
-  try {
-    console.log(`[ImageGen] Generating image with prompt: ${prompt.substring(0, 100)}...`);
-
-    const data = await callGeminiImageAPI(enhancedPrompt);
-    const image = findImageData(data);
-
-    if (image) {
-      // Create downloads directory if it doesn't exist
-      const downloadsDir = join(process.cwd(), 'public', 'downloads');
-      await mkdir(downloadsDir, { recursive: true });
-
-      // Save image
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const filename = `anxi_${timestamp}_${Math.random().toString(36).slice(2, 8)}.png`;
-      const filepath = join(downloadsDir, filename);
-
-      // Convert base64 to buffer and save
-      const buffer = Buffer.from(image.data, 'base64');
-      await writeFile(filepath, buffer);
-
-      console.log(`[ImageGen] Saved to: ${filename}`);
-
-      // Return public URL
-      return `/downloads/${filename}`;
-    }
-
-    console.log('[ImageGen] No image data in response');
-    return '';
-  } catch (error) {
-    console.error('[ImageGen] Error:', error);
-    return '';
-  }
 }
