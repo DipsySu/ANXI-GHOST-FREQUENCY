@@ -54,6 +54,10 @@ export function sceneFor(era: Era, seed: string): string {
   return arr[h % arr.length];
 }
 
+export function isConceptScene(src: string): boolean {
+  return src.startsWith(`${GEN}/`);
+}
+
 export const RELICS = {
   coin: '/sprites/relic_coin.png',
   chip: '/sprites/relic_chip.png',

@@ -232,7 +232,9 @@ html,body{ margin:0; padding:0; background:#040605; overflow-x:hidden; max-width
 .slip-visual{ align-self:start; }
 .slip-visual .vk{ font-size:10px; letter-spacing:.16em; color:rgba(255,255,255,.4); text-transform:uppercase; margin-bottom:8px; }
 .slip-visual .frame{ position:relative; overflow:hidden; border:2px solid rgba(var(--line),.4); box-shadow:3px 3px 0 #000; aspect-ratio:4/3; background:#04080a; }
-.slip-visual .frame img{ width:100%; height:100%; object-fit:cover; image-rendering:pixelated; display:block; }
+.slip-visual .frame img{ width:100%; height:100%; object-fit:cover; display:block; }
+.slip-visual .frame.scene-pixel img{ image-rendering:pixelated; }
+.slip-visual .frame.scene-concept img{ image-rendering:auto; }
 .slip-visual .frame .vscan{ position:absolute; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 2px, transparent 2px 4px); mix-blend-mode:multiply; }
 .slip-visual .vcap{ font-size:10px; letter-spacing:.08em; color:var(--accent); opacity:.7; margin-top:8px; text-transform:uppercase; }
 .slip-foot{ grid-column:1 / -1; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; border-top:2px solid rgba(var(--line),.2); padding-top:13px; font-size:11px; letter-spacing:.05em; color:rgba(255,255,255,.4); }
