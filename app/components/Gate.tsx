@@ -78,6 +78,8 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
   const audio = useRef<AudioContext | null>(null);
   const lastTick = useRef(0);
   const lastThunk = useRef(0);
+  const ringPhase = useRef(0);   // accumulated sonar-ring expansion phase (smooth speed-up, never jumps)
+  const ringLast = useRef(0);    // timestamp of the last ring-phase advance
   const unlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { relicsRef.current = relics; groundDirty.current = true; }, [relics]);
@@ -481,7 +483,9 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
         ctx.fillRect(f.x - RELIC_PX / 2, f.y - RELIC_PX / 2, RELIC_PX, RELIC_PX);
       }
 
-      // tool: a pixel "detector" ring — turns gold + tightens as it nears a buried relic
+      // tool: a "lost-frequency" sonar cursor — broken, trembling signal rings that
+      // cohere (denser, faster, warmer + a spectrum readout) as they near a buried
+      // relic. No frame, no crosshair, no lock-on brackets: listening, not aiming.
       const tl = tool.current;
       if (tl.on && tl.x >= 0) {
         const T2 = grid.current.T;
@@ -492,28 +496,65 @@ export function Gate({ onUnlock, lang, site }: { onUnlock: () => void; lang: Lan
           near = Math.max(near, Math.max(0, 1 - Math.hypot(r.x * W - tl.x, r.y * H - tl.y) / hintNear));
         }
         tl.near = near;
-        const pulse = reduce ? 0.7 : 0.5 + 0.5 * Math.sin(performance.now() / (near > 0 ? 90 : 240));
-        const col = `rgba(${Math.round(95 + 136 * near)},${Math.round(224 - 46 * near)},${Math.round(122 - 45 * near)},`;
-        ctx.strokeStyle = col + (0.5 + 0.4 * pulse * (0.5 + near)) + ')'; ctx.lineWidth = 2;
+        // advance the ring phase by a per-frame increment (speed scales with `near`) instead of
+        // multiplying absolute time — otherwise any change in `near` scrambles the phase and the
+        // rings jump exactly while you're approaching a relic.
+        const nowMs = performance.now();
+        const dt = ringLast.current ? Math.min(0.05, (nowMs - ringLast.current) / 1000) : 0;
+        ringLast.current = nowMs;
+        ringPhase.current += dt * (0.42 + near * 1.7);
+        const tt = nowMs / 1000;
+        const cr = Math.round(95 + 136 * near), cg = Math.round(224 - 46 * near), cb = Math.round(122 - 45 * near);
+        const sig = (a: number) => `rgba(${cr},${cg},${cb},${a})`;
         const rr = T2 * 1.35;
-        ctx.strokeRect(tl.x - rr, tl.y - rr, rr * 2, rr * 2);
-        ctx.strokeStyle = col + '0.85)';
-        ctx.beginPath(); ctx.moveTo(tl.x - 7, tl.y); ctx.lineTo(tl.x + 7, tl.y); ctx.moveTo(tl.x, tl.y - 7); ctx.lineTo(tl.x, tl.y + 7); ctx.stroke();
-        // "hot" cue: corner ticks that grow as you near a relic (without pinpointing it)
-        if (near > 0.35) {
-          const tk = 4 + near * 7, o = rr + 3;
-          ctx.lineWidth = 2;
-          for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-            ctx.beginPath();
-            ctx.moveTo(tl.x + sx * o, tl.y + sy * o - sy * tk); ctx.lineTo(tl.x + sx * o, tl.y + sy * o); ctx.lineTo(tl.x + sx * o - sx * tk, tl.y + sy * o);
-            ctx.stroke();
+        const TAU = Math.PI * 2;
+
+        // broken, trembling rings — a decaying ping, not a clean radar circle
+        for (let k = 0; k < 3; k++) {
+          const p = reduce ? (k + 1) / 4 : (ringPhase.current + k / 3) % 1;
+          const R = 7 + p * (rr * 1.75);
+          const ab = (0.12 + near * 0.3) * (1 - p);
+          if (ab <= 0.012) continue;
+          for (let s = 0; s < 6; s++) {
+            const seed = k * 13 + s;
+            if ((reduce ? n2(seed, k) : n2(seed, Math.floor(tt * 6) + k * 3)) < 0.34) continue; // dropouts break the ring
+            const a0 = s * (TAU / 6) + (reduce ? 0 : tt * 0.25 * (k % 2 ? 1 : -1)) + (n2(seed, 3) - 0.5) * 0.4;
+            const sweep = (TAU / 6) * (0.34 + 0.3 * n2(seed, 7));
+            const jit = reduce ? 0 : Math.sin(tt * 9 + s * 1.7 + k) * (1 + near * 1.4) + (n2(seed, Math.floor(tt * 11)) - 0.5) * 2.2;
+            ctx.strokeStyle = sig(ab); ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(tl.x, tl.y, Math.max(2, R + jit), a0, a0 + sweep); ctx.stroke();
           }
         }
+
+        // center anchor: a small hollow pixel square (deliberately not a crosshair)
+        ctx.strokeStyle = sig(0.6 + near * 0.35); ctx.lineWidth = 1;
+        ctx.strokeRect(tl.x - 2, tl.y - 2, 4, 4);
+
+        // side HUD; flips left near the right edge so it never runs off-screen
+        const right = tl.x + rr + 90 < W;
+        // spectrum readout: lights + trembles as the signal strengthens (replaces the old lock-on)
+        const bx = right ? tl.x + rr + 9 : tl.x - rr - 29, base = tl.y + rr - 6;
+        for (let i = 0; i < 5; i++) {
+          const amp = near * (3 + 9 * n2(i, reduce ? 0 : Math.floor(tt * 9)));
+          const hgt = 2 + (reduce ? amp : amp * Math.abs(Math.sin(tt * 6 + i * 1.3)));
+          ctx.fillStyle = sig(0.2 + near * 0.7);
+          ctx.fillRect(bx + i * 4, base - hgt, 3, hgt);
+        }
+        // tiny field-console coordinate tag — borrows the dig-site code/depth, no excavation frame
+        const tagW = 80, tx = right ? tl.x + rr + 8 : tl.x - rr - 8 - tagW, ty = Math.max(13, tl.y - rr + 4);
+        ctx.fillStyle = 'rgba(8,6,4,.5)'; ctx.fillRect(tx - 2, ty - 11, tagW, 24);
+        const per = near > 0.4 ? 420 : 1100;
+        ctx.fillStyle = (reduce || performance.now() % per < per / 2) ? sig(0.9) : sig(0.28);
+        ctx.fillRect(tx, ty - 9, 3, 3);
+        ctx.fillStyle = 'rgba(206,182,120,.62)'; ctx.font = '11px ui-monospace, monospace';
+        ctx.fillText(site.code, tx + 7, ty);
+        ctx.fillStyle = 'rgba(206,182,120,.42)';
+        ctx.fillText(site.depth, tx + 7, ty + 11);
       }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [drawTiles, drawGround, reduce]);
+  }, [drawTiles, drawGround, reduce, site.code, site.depth]);
 
   // --- pointer handling: dig only while pressed, with stroke interpolation so fast drags don't skip ---
   const ensureAudio = useCallback(() => {
