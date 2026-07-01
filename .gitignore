@@ -44,3 +44,6 @@ review-artifacts/
 
 # design references (Claude Design exports)
 design/
+
+# concept-art masters: keep full-res PNG local; commit only the web-optimized .jpg
+public/generated/**/*.png
