@@ -14,7 +14,8 @@ function formatDevError(error: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const rawBody = await request.json().catch(() => ({}));
+    const body = rawBody && typeof rawBody === 'object' ? rawBody as Record<string, unknown> : {};
     const { query } = body;
 
     if (typeof query !== 'string' || !query.trim() || query.length > 200) {
@@ -25,11 +26,11 @@ export async function POST(request: NextRequest) {
 
     // Fail fast on the most common misconfig: no credentials at all. Production keeps the
     // poetic client copy; development gets a concrete config hint (or use ?demo=1 offline).
-    if (!process.env.GEMINI_API_KEY && !process.env.BASE_URL) {
+    if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY && !process.env.BASE_URL) {
       return NextResponse.json(
         {
           error: 'Failed to generate log',
-          ...(isDev && { dev: 'DEV · 缺少 Gemini 凭据:未设置 GEMINI_API_KEY(或 BASE_URL 代理)。在 .env.local 配置后重启 dev server;或在地址栏加 ?demo=1 离线预览残片。' }),
+          ...(isDev && { dev: 'DEV · 缺少 Gemini 凭据:未设置 GEMINI_API_KEY / GOOGLE_API_KEY(或 BASE_URL 代理)。在 .env.local 配置后重启 dev server;或在地址栏加 ?demo=1 离线预览残片。' }),
         },
         { status: 503 },
       );

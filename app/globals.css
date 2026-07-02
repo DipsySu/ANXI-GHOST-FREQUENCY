@@ -158,7 +158,7 @@ html,body{ margin:0; padding:0; background:#040605; overflow-x:hidden; max-width
 .strata{ border:2px solid rgba(var(--line),.3); background:var(--lo); box-shadow:4px 4px 0 #000; padding:9px 11px 11px; }
 .strata-head{ display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:rgba(255,255,255,.42); margin-bottom:8px; }
 .strata-head b{ color:var(--accent2); font-weight:400; }
-.band{ position:relative; height:74px; display:flex; cursor:pointer; border:1px solid rgba(var(--line),.3);
+.band{ position:relative; height:74px; display:flex; cursor:pointer; touch-action:none; border:1px solid rgba(var(--line),.3);
   /* soil strata lines across the whole section */
   background:repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 1px, transparent 1px 13px); }
 .band:focus-visible{ outline:2px solid var(--accent2); outline-offset:2px; }
@@ -231,7 +231,7 @@ html,body{ margin:0; padding:0; background:#040605; overflow-x:hidden; max-width
 .slip-body{ font-family:var(--serif); font-size:clamp(15px,1.6vw,17px); line-height:2.0; color:var(--ink); white-space:pre-wrap; word-break:break-word; min-height:6em; }
 .slip-visual{ align-self:start; }
 .slip-visual .vk{ font-size:10px; letter-spacing:.16em; color:rgba(255,255,255,.4); text-transform:uppercase; margin-bottom:8px; }
-.slip-visual .frame{ position:relative; overflow:hidden; border:2px solid rgba(var(--line),.4); box-shadow:3px 3px 0 #000; aspect-ratio:4/3; background:#04080a; }
+.slip-visual .frame{ position:relative; overflow:hidden; border:2px solid rgba(var(--line),.4); box-shadow:3px 3px 0 #000; aspect-ratio:16/9; background:#04080a; }
 .slip-visual .frame img{ width:100%; height:100%; object-fit:cover; display:block; }
 .slip-visual .frame.scene-pixel img{ image-rendering:pixelated; }
 .slip-visual .frame .vscan{ position:absolute; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 2px, transparent 2px 4px); mix-blend-mode:multiply; }
@@ -365,4 +365,6 @@ html,body{ margin:0; padding:0; background:#040605; overflow-x:hidden; max-width
   .strip .mini{ order:5; flex-basis:100%; }
   .archive .chips{ flex-basis:100%; }
   .gate-kbd{ flex-wrap:wrap; max-width:92vw; justify-content:center; }
+  .gate-hint{ top:88px; padding:0 14px; font-size:11px; letter-spacing:.1em; line-height:1.45; }
+  .gate-hint b{ margin-top:6px; font-size:10px; letter-spacing:.16em; }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type CSSProperties, type KeyboardEvent } from 'react';
 import { LogData, Era } from './types';
 import { translations, Language } from './constants/translations';
 import { Gate } from './components/Gate';
@@ -155,6 +155,12 @@ export default function Home() {
     }
   };
 
+  const handleDigKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    dig();
+  };
+
   return (
     <div className={`app${booted ? ' booted' : ''}${lowmem ? ' lowmem' : ''}`} data-era={era}>
       <div className="cube" inert={showGate || undefined}>
@@ -254,7 +260,7 @@ export default function Home() {
                 <input
                   value={input}
                   onChange={(e) => { setInput(e.target.value); if (error) { setError(null); setErrorDev(null); } }}
-                  onKeyDown={(e) => e.key === 'Enter' && dig()}
+                  onKeyDown={handleDigKeyDown}
                   placeholder={t.input_placeholder}
                   aria-label={t.input_placeholder}
                   disabled={loading}
@@ -300,7 +306,7 @@ export default function Home() {
           <input
             value={input}
             onChange={(e) => { setInput(e.target.value); if (error) { setError(null); setErrorDev(null); } }}
-            onKeyDown={(e) => e.key === 'Enter' && dig()}
+            onKeyDown={handleDigKeyDown}
             placeholder={t.input_placeholder}
             aria-label={t.input_placeholder}
             disabled={loading}

@@ -71,7 +71,7 @@ async function getSystemPrompt() {
   }
 }
 
-const API_KEY = process.env.GEMINI_API_KEY || '';
+const API_KEY = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
 const BASE_URL = process.env.BASE_URL;
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com';
@@ -111,13 +111,18 @@ if (process.env.NODE_ENV !== 'production') console.log(`[Gemini] Using ${USE_SDK
 // ============================================================================
 
 interface GenerateResponse {
-  candidates: Array<{
+  candidates?: Array<{
     content: {
       parts: Array<{
         text?: string;
       }>;
     };
+    finishReason?: string;
   }>;
+  promptFeedback?: {
+    blockReason?: string;
+    blockReasonMessage?: string;
+  };
 }
 
 async function callViaFetch(
@@ -192,22 +197,21 @@ async function callViaSDK(
     contents: userPrompt,
   };
 
-  // Add system instruction if provided
-  if (options.systemInstruction) {
-    requestParams.systemInstruction = options.systemInstruction;
-  }
-
   // Add response config
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const config: any = {};
   if (options.responseMimeType) {
     config.responseMimeType = options.responseMimeType;
   }
+  if (options.systemInstruction) {
+    config.systemInstruction = options.systemInstruction;
+  }
   if (Object.keys(config).length > 0) {
     requestParams.config = config;
   }
 
   const response = await ai.models.generateContent(requestParams);
+  const responseObj = response as unknown as GenerateResponse;
 
   // Extract text
   let fullText = '';
@@ -217,17 +221,22 @@ async function callViaSDK(
   }
 
   // Return in the same format as fetch
-  const candidates: GenerateResponse['candidates'] = [{
+  const candidate: NonNullable<GenerateResponse['candidates']>[number] = {
     content: {
       parts: []
-    }
-  }];
+    },
+  };
 
-  if (fullText) {
-    candidates[0].content.parts.push({ text: fullText });
+  const finishReason = responseObj.candidates?.[0]?.finishReason;
+  if (finishReason) {
+    candidate.finishReason = finishReason;
   }
 
-  return { candidates };
+  if (fullText) {
+    candidate.content.parts.push({ text: fullText });
+  }
+
+  return { candidates: [candidate], promptFeedback: responseObj.promptFeedback };
 }
 
 // ============================================================================
@@ -274,6 +283,17 @@ function pickYear(record: Record<string, unknown>, query: string) {
   return Math.max(640, Math.min(808, Number.isFinite(parsedYear) ? parsedYear : 790));
 }
 
+function describeGeminiEmptyResponse(data: GenerateResponse) {
+  const blockReason = data.promptFeedback?.blockReason;
+  const blockMessage = data.promptFeedback?.blockReasonMessage;
+  const finishReason = data.candidates?.[0]?.finishReason;
+  const details = [blockReason && `blockReason=${blockReason}`, blockMessage, finishReason && `finishReason=${finishReason}`]
+    .filter(Boolean)
+    .join(' · ');
+
+  return details ? `No text response from Gemini (${details})` : 'No text response from Gemini';
+}
+
 export async function generateLog(query: string) {
   const lifeDetailPrompt = buildLifeDetailPrompt(query);
   const jsonContract = `Return one strict JSON object only. Use these exact snake_case keys: year_str, location, signal, sender, content, image_prompt, last_post. Do not rename keys to camelCase.`;
@@ -286,10 +306,10 @@ export async function generateLog(query: string) {
     { responseMimeType: 'application/json' }
   );
 
-  const response = data.candidates[0]?.content?.parts[0]?.text;
+  const response = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!response) {
-    throw new Error('No response from Gemini');
+    throw new Error(describeGeminiEmptyResponse(data));
   }
 
   // Parse JSON from response

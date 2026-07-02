@@ -320,18 +320,11 @@ export function extractYearFromQuery(query: string) {
 }
 
 function pickCards(pool: LifeDetailCard[], seed: string, limit: number) {
-  const selected: LifeDetailCard[] = [];
-  let cursor = hashString(seed);
-
-  while (selected.length < limit && selected.length < pool.length) {
-    const card = pool[cursor % pool.length];
-    if (!selected.some((item) => item.id === card.id)) {
-      selected.push(card);
-    }
-    cursor = (cursor + 7) >>> 0;
-  }
-
-  return selected;
+  return pool
+    .map((card, index) => ({ card, score: hashString(`${seed}:${card.id}:${index}`) }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, Math.min(limit, pool.length))
+    .map(({ card }) => card);
 }
 
 export function buildLifeDetailPrompt(query: string) {
